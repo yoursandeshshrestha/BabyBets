@@ -33,12 +33,25 @@ interface HostedSessionResponse {
   error?: string
 }
 
+// Browser information interface
+export interface BrowserInfo {
+  deviceChannel: string
+  deviceIdentity: string
+  deviceTimeZone: string
+  deviceCapabilities: string
+  deviceScreenResolution: string
+  deviceAcceptContent: string
+  deviceAcceptEncoding: string
+  deviceAcceptLanguage: string
+}
+
 // Create a direct payment session via Edge Function
 export const createHostedPaymentSession = async (
   orderRef: string,
   customerEmail?: string,
   customerPhone?: string,
-  cardDetails?: CardDetails
+  cardDetails?: CardDetails,
+  browserInfo?: BrowserInfo
 ): Promise<HostedSessionResponse> => {
   // Get current session
   const {
@@ -109,6 +122,7 @@ export const createHostedPaymentSession = async (
       customerEmail,
       customerPhone,
       ...(cardDetails && { cardDetails }),
+      ...(browserInfo && { browserInfo }),
     },
   })
 

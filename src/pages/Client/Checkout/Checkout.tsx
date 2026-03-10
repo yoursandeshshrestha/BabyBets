@@ -6,6 +6,7 @@ import { useCartStore } from '@/store/cartStore'
 import { useAuthStore } from '@/store/authStore'
 import { useWallet } from '@/hooks/useWallet'
 import { createHostedPaymentSession } from '@/lib/g2pay'
+import { collectBrowserInfo } from '@/lib/browserInfo'
 import { supabase } from '@/lib/supabase'
 import { getReferral, clearReferral, setReferral } from '@/lib/referralTracking'
 import { showErrorToast, showWarningToast } from '@/lib/toast'
@@ -502,6 +503,9 @@ function Checkout() {
         })
       }
 
+      // Collect browser information for 3DS v2
+      const browserInfo = collectBrowserInfo()
+
       // Prepare card details for direct payment
       const [expMonth, expYear] = expiryDate.split('/')
       const cardDetailsPayload = {
@@ -512,12 +516,13 @@ function Checkout() {
         cardholderName,
       }
 
-      // Create direct payment session with card details
+      // Create direct payment session with card details and browser info
       const paymentResult = await createHostedPaymentSession(
         order.id,
         session.user.email,
         mobileNumber,
-        cardDetailsPayload
+        cardDetailsPayload,
+        browserInfo
       )
 
       if (!paymentResult.success) {
