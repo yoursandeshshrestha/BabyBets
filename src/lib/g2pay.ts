@@ -21,6 +21,7 @@ export interface CardDetails {
 interface HostedSessionResponse {
   success: boolean
   hostedPaymentURL?: string
+  paymentFormData?: Record<string, string>
   orderRef?: string
   transactionUnique?: string
   error?: string

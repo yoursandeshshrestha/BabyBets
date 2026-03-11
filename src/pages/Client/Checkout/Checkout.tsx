@@ -502,21 +502,36 @@ function Checkout() {
         throw new Error(paymentResult.error || 'Failed to create payment session')
       }
 
-      if (!paymentResult.hostedPaymentURL) {
+      if (!paymentResult.hostedPaymentURL || !paymentResult.paymentFormData) {
         throw new Error('No payment URL received from payment gateway')
       }
 
       // Save order ID to localStorage so we can track it after redirect
       localStorage.setItem('pendingOrderId', order.id)
 
-      // Redirect to G2Pay's hosted payment page
+      // Submit POST form to G2Pay's hosted payment page
       // User will enter card details on G2Pay's secure page
       // G2Pay handles 3DS, Apple Pay, Google Pay automatically
-      console.log('[Checkout] Redirecting to G2Pay hosted payment page')
+      console.log('[Checkout] Redirecting to G2Pay hosted payment page via POST')
       console.log('[Checkout] Payment URL:', paymentResult.hostedPaymentURL)
 
-      // Redirect to G2Pay's hosted payment page
-      window.location.href = paymentResult.hostedPaymentURL
+      // Create a hidden form and submit it via POST (more secure than GET)
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = paymentResult.hostedPaymentURL
+
+      // Add all payment parameters as hidden form fields
+      Object.entries(paymentResult.paymentFormData).forEach(([key, value]) => {
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = key
+        input.value = String(value)
+        form.appendChild(input)
+      })
+
+      // Add form to document and submit
+      document.body.appendChild(form)
+      form.submit()
     } catch (err) {
       console.error('Error processing payment:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to process payment'

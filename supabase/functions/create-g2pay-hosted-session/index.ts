@@ -239,11 +239,13 @@ serve(async (req) => {
         .eq('id', transactionLog.id)
     }
 
-    // Return the hosted payment URL for the frontend to redirect to
+    // Return both the URL (for GET redirect) and form data (for POST submission)
+    // Frontend will use POST form submission for better security
     return new Response(
       JSON.stringify({
         success: true,
-        hostedPaymentURL,
+        hostedPaymentURL: G2PAY_DIRECT_API_URL,
+        paymentFormData: finalRequest,
         orderRef,
         transactionUnique,
       }),
