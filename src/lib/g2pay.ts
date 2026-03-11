@@ -28,11 +28,12 @@ interface HostedSessionResponse {
 }
 
 // Create a hosted payment session via Edge Function
-// User will be redirected to G2Pay's page to enter card details
+// Direct API: collect card details on our page
 export const createHostedPaymentSession = async (
   orderRef: string,
   customerEmail?: string,
-  customerPhone?: string
+  customerPhone?: string,
+  cardDetails?: CardDetails
 ): Promise<HostedSessionResponse> => {
   // Get current session
   const {
@@ -96,12 +97,13 @@ export const createHostedPaymentSession = async (
     }
   )
 
-  // Call Edge Function to create hosted payment session
+  // Call Edge Function to create Direct API payment session
   const { data, error } = await supabaseWithAuth.functions.invoke('create-g2pay-hosted-session', {
     body: {
       orderRef,
       customerEmail,
       customerPhone,
+      cardDetails,
     },
   })
 

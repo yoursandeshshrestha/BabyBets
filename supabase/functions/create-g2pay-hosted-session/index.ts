@@ -105,11 +105,12 @@ serve(async (req) => {
       }
     )
 
-    // Get request body (no card details - hosted integration)
+    // Get request body (includes card details for Direct API)
     const {
       orderRef,
       customerEmail,
       customerPhone,
+      cardDetails,
     } = await req.json()
 
     if (!orderRef) {
@@ -183,8 +184,18 @@ serve(async (req) => {
       console.error('[create-g2pay-hosted-session] Failed to create transaction log:', logError)
     }
 
-    // Prepare request data for G2Pay Direct API with 3DS v2
-    // For 3DS to work, we need to collect card details and browser info
+    // Validate card details are provided
+    if (!cardDetails || !cardDetails.cardNumber || !cardDetails.expiryMonth || !cardDetails.expiryYear || !cardDetails.cvv) {
+      return new Response(
+        JSON.stringify({ error: 'Card details are required' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Prepare request data for G2Pay Direct API (no 3DS for now)
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
       action: 'SALE',
@@ -195,11 +206,11 @@ serve(async (req) => {
       orderRef,
       transactionUnique,
 
-      // 3DS v2 requirement
-      threeDSRequired: 'Y',
-
-      // Redirect URL for 3DS authentication
-      threeDSRedirectURL: `${SITE_URL}/payment-return?orderRef=${orderRef}`,
+      // Card details
+      cardNumber: cardDetails.cardNumber,
+      cardExpiryMonth: cardDetails.expiryMonth,
+      cardExpiryYear: cardDetails.expiryYear,
+      cardCVV: cardDetails.cvv,
 
       // Webhook callback URL for backend payment confirmation
       callbackURL: `${SUPABASE_URL}/functions/v1/g2pay-webhook`,
@@ -207,6 +218,7 @@ serve(async (req) => {
       // Optional customer details
       ...(customerEmail && { customerEmail }),
       ...(cleanedPhone && { customerPhone: cleanedPhone }),
+      ...(cardDetails.cardholderName && { cardholderName: cardDetails.cardholderName }),
     }
 
     // Generate signature
@@ -218,44 +230,110 @@ serve(async (req) => {
       signature,
     }
 
-    console.log('[create-g2pay-hosted] Creating hosted payment session:', {
+    console.log('[create-g2pay-direct] Processing Direct API payment:', {
       orderRef,
       amount: order.total_pence,
       transactionUnique,
       apiUrl: G2PAY_DIRECT_API_URL,
     })
 
-    console.log('[create-g2pay-hosted] Request data:', requestData)
-    console.log('[create-g2pay-hosted] Final request with signature:', finalRequest)
+    console.log('[create-g2pay-direct] Request data (card hidden):', {
+      ...requestData,
+      cardNumber: '****',
+      cardCVV: '***',
+    })
 
-    // For Hosted Integration, return the payment URL for frontend to redirect to
-    // G2Pay's hosted page will display, handle card entry, 3DS, Apple Pay, Google Pay
-    const hostedPaymentURL = `${G2PAY_DIRECT_API_URL}?${new URLSearchParams(finalRequest as Record<string, string>).toString()}`
+    // Make direct POST request to G2Pay API
+    const g2payResponse = await fetch(G2PAY_DIRECT_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams(finalRequest as Record<string, string>).toString(),
+    })
 
-    console.log('[create-g2pay-hosted] Hosted payment URL created:', hostedPaymentURL)
+    if (!g2payResponse.ok) {
+      console.error('[create-g2pay-direct] G2Pay API request failed:', g2payResponse.status)
+      throw new Error(`G2Pay API request failed: ${g2payResponse.status}`)
+    }
 
-    // Update transaction log
+    // Parse response
+    const responseText = await g2payResponse.text()
+    console.log('[create-g2pay-direct] Raw G2Pay response:', responseText)
+
+    const responseParams = new URLSearchParams(responseText)
+    const responseData: Record<string, string> = {}
+
+    responseParams.forEach((value, key) => {
+      responseData[key] = value
+    })
+
+    console.log('[create-g2pay-direct] Parsed response:', {
+      responseCode: responseData.responseCode,
+      responseMessage: responseData.responseMessage,
+      transactionID: responseData.transactionID,
+    })
+
+    // Check payment status (responseCode '0' = success)
+    if (responseData.responseCode === '0') {
+      console.log('[create-g2pay-direct] ✅ Payment successful')
+
+      // Update transaction log with success
+      if (transactionLog?.id) {
+        await supabaseAdmin
+          .from('payment_transactions')
+          .update({
+            transaction_id: responseData.transactionID,
+            response_code: responseData.responseCode,
+            response_message: responseData.responseMessage,
+            status: 'success',
+            response_data: responseData,
+          })
+          .eq('id', transactionLog.id)
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          transactionID: responseData.transactionID,
+          transactionUnique: responseData.transactionUnique || transactionUnique,
+          orderRef: responseData.orderRef || orderRef,
+          message: responseData.responseMessage,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Payment failed
+    console.error('[create-g2pay-direct] Payment failed:', {
+      responseCode: responseData.responseCode,
+      responseMessage: responseData.responseMessage,
+    })
+
+    // Update transaction log with failure
     if (transactionLog?.id) {
       await supabaseAdmin
         .from('payment_transactions')
         .update({
-          status: 'awaiting_payment',
-          gateway_url: hostedPaymentURL,
+          response_code: responseData.responseCode,
+          response_message: responseData.responseMessage,
+          status: 'failed',
+          response_data: responseData,
+          error_message: responseData.responseMessage,
         })
         .eq('id', transactionLog.id)
     }
 
-    // Return both the URL (for GET redirect) and form data (for POST submission)
-    // Frontend will use POST form submission for better security
     return new Response(
       JSON.stringify({
-        success: true,
-        hostedPaymentURL: G2PAY_DIRECT_API_URL,
-        paymentFormData: finalRequest,
-        orderRef,
-        transactionUnique,
+        success: false,
+        error: responseData.responseMessage || 'Payment failed',
+        responseCode: responseData.responseCode,
       }),
       {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     )
