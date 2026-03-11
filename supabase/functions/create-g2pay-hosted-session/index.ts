@@ -119,6 +119,9 @@ serve(async (req) => {
       })
     }
 
+    // Clean phone number - remove spaces for G2Pay
+    const cleanedPhone = customerPhone ? customerPhone.replace(/\s/g, '') : undefined
+
     // Security: Verify the order exists and belongs to the authenticated user
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
@@ -180,8 +183,8 @@ serve(async (req) => {
       console.error('[create-g2pay-hosted-session] Failed to create transaction log:', logError)
     }
 
-    // Prepare request data for G2Pay Hosted Integration
-    // No card details or browser info needed - user will enter card on G2Pay's page
+    // Prepare request data for G2Pay Direct API with 3DS v2
+    // For 3DS to work, we need to collect card details and browser info
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
       action: 'SALE',
@@ -192,15 +195,18 @@ serve(async (req) => {
       orderRef,
       transactionUnique,
 
-      // Redirect URL - where G2Pay redirects after payment
-      redirectURL: `${SITE_URL}/payment-return?orderRef=${orderRef}`,
+      // 3DS v2 requirement
+      threeDSRequired: 'Y',
+
+      // Redirect URL for 3DS authentication
+      threeDSRedirectURL: `${SITE_URL}/payment-return?orderRef=${orderRef}`,
 
       // Webhook callback URL for backend payment confirmation
       callbackURL: `${SUPABASE_URL}/functions/v1/g2pay-webhook`,
 
       // Optional customer details
       ...(customerEmail && { customerEmail }),
-      ...(customerPhone && { customerPhone }),
+      ...(cleanedPhone && { customerPhone: cleanedPhone }),
     }
 
     // Generate signature
