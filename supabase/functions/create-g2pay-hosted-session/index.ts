@@ -8,23 +8,26 @@ const corsHeaders = {
 
 // Generate signature using G2Pay's method (SHA-512)
 async function createSignature(data: Record<string, string | number>, signatureKey: string): Promise<string> {
-  const processedData: Record<string, string> = {}
+  // Sort keys alphabetically (same as PHP's ksort)
   const keys = Object.keys(data).sort()
 
+  // Create URL encoded signature string using sorted keys (same as PHP's http_build_query)
+  const params = new URLSearchParams()
   keys.forEach(key => {
-    processedData[key] = String(data[key])
+    params.append(key, String(data[key]))
   })
 
-  const params = new URLSearchParams()
-  for (const key in processedData) {
-    params.append(key, processedData[key])
-  }
   let signatureString = params.toString()
 
+  // Normalise all line endings (CRNL|NLCR|NL|CR) to just NL (%0A)
   signatureString = signatureString
     .replace(/%0D%0A/g, '%0A')
     .replace(/%0A%0D/g, '%0A')
     .replace(/%0D/g, '%0A')
+
+  // Log the query string (first 200 chars) for debugging
+  console.log('[createSignature] Query string (first 200 chars):', signatureString.substring(0, 200))
+  console.log('[createSignature] Query string length:', signatureString.length)
 
   const messageToHash = signatureString + signatureKey
 
@@ -301,15 +304,6 @@ serve(async (req) => {
       ...(browserInfo && browserInfo),
     }
 
-    // Generate signature
-    const signature = await createSignature(requestData, G2PAY_SIGNATURE_KEY)
-
-    // Add signature to request
-    const finalRequest = {
-      ...requestData,
-      signature,
-    }
-
     console.log('[create-g2pay-direct] Processing Direct API payment:', {
       orderRef,
       amount: order.total_pence,
@@ -322,6 +316,32 @@ serve(async (req) => {
       cardNumber: '****',
       cardCVV: '***',
     })
+
+    // Log sorted keys for debugging
+    const sortedKeys = Object.keys(requestData).sort()
+    console.log('[create-g2pay-direct] Sorted keys:', sortedKeys.join(', '))
+    console.log('[create-g2pay-direct] Signature key length:', G2PAY_SIGNATURE_KEY?.length, 'Expected: 13')
+
+    // For Direct Integration, exclude card fields and callbackURL from signature
+    // Card details and callback URL are sent but not included in signature calculation
+    const signatureData = { ...requestData }
+    delete signatureData.cardNumber
+    delete signatureData.cardExpiryMonth
+    delete signatureData.cardExpiryYear
+    delete signatureData.cardCVV
+    delete signatureData.callbackURL
+
+    console.log('[create-g2pay-direct] Signature fields (after excluding card data):', Object.keys(signatureData).sort().join(', '))
+
+    // Generate signature
+    const signature = await createSignature(signatureData, G2PAY_SIGNATURE_KEY)
+    console.log('[create-g2pay-direct] Generated signature:', signature)
+
+    // Add signature to request
+    const finalRequest = {
+      ...requestData,
+      signature,
+    }
 
     // Make direct POST request to G2Pay API
     const g2payResponse = await fetch(G2PAY_DIRECT_API_URL, {
