@@ -218,7 +218,7 @@ serve(async (req) => {
       // Optional customer details
       ...(customerEmail && { customerEmail }),
       ...(cleanedPhone && { customerPhone: cleanedPhone }),
-      ...(cardDetails.cardholderName && { cardholderName: cardDetails.cardholderName }),
+      ...(cardDetails.cardholderName && { customerName: cardDetails.cardholderName }),
     }
 
     // Generate signature
