@@ -149,16 +149,15 @@ function Payment3DS() {
       // Parse the ACS response
       const responseData: Record<string, string> = {}
       if (acsResponse) {
-        // Try to parse as query string
-        const params = new URLSearchParams(acsResponse)
-        let hasParams = false
-        params.forEach((value, key) => {
-          responseData[key] = value
-          hasParams = true
-        })
-
-        // If no params were parsed, treat the whole string as threeDSResponse value
-        if (!hasParams) {
+        // Check if it looks like a query string (contains = or &)
+        if (acsResponse.includes('=') || acsResponse.includes('&')) {
+          // Parse as query string
+          const params = new URLSearchParams(acsResponse)
+          params.forEach((value, key) => {
+            responseData[key] = value
+          })
+        } else {
+          // Simple string value - use it directly as threeDSResponse
           responseData.threeDSResponse = acsResponse
         }
       }
