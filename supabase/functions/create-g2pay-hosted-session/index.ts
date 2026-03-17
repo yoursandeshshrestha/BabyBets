@@ -218,7 +218,20 @@ serve(async (req) => {
       )
     }
 
-    // Prepare request data for G2Pay Direct API (WITHOUT 3DS - disabled in portal)
+    // Get client IP from request headers (Supabase edge functions)
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('cf-connecting-ip')
+      || req.headers.get('x-real-ip')
+      || '0.0.0.0'
+
+    // Get User-Agent from request headers
+    const userAgent = req.headers.get('user-agent') || 'Mozilla/5.0'
+
+    // Build callback URL for 3DS redirect
+    const siteUrl = Deno.env.get('SITE_URL') || Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
+    const threeDSRedirectURL = `${siteUrl}/payment-3ds?orderRef=${orderRef}`
+
+    // Prepare request data for G2Pay Direct API with 3DS support
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
       action: 'SALE',
@@ -227,6 +240,7 @@ serve(async (req) => {
       currencyCode: 826, // GBP
       amount: order.total_pence,
       orderRef,
+      transactionUnique,
 
       // Card details
       cardNumber: cardDetails.cardNumber,
@@ -238,6 +252,20 @@ serve(async (req) => {
       ...(customerEmail && { customerEmail }),
       ...(cleanedPhone && { customerPhone: cleanedPhone }),
       ...(cardDetails.cardholderName && { customerName: cardDetails.cardholderName }),
+
+      // 3DS required fields
+      threeDSRedirectURL,
+      remoteAddress: clientIp,
+
+      // Device identity fields required for 3DS2
+      deviceChannel: 'browser',
+      deviceIdentity: userAgent,
+      deviceTimeZone: '0',
+      deviceCapabilities: 'javascript',
+      deviceScreenResolution: '1920x1080x24',
+      deviceAcceptContent: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      deviceAcceptEncoding: 'gzip, deflate, br',
+      deviceAcceptLanguage: 'en-GB',
     }
 
     console.log('[create-g2pay-direct] Processing Direct API payment:', {
@@ -330,6 +358,40 @@ serve(async (req) => {
           transactionUnique: responseData.transactionUnique || transactionUnique,
           orderRef: responseData.orderRef || orderRef,
           message: responseData.responseMessage,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // 3DS required (responseCode 65802)
+    if (responseData.responseCode === '65802') {
+      console.log('[create-g2pay-direct] 3DS challenge required')
+
+      // Update transaction log
+      if (transactionLog?.id) {
+        await supabaseAdmin
+          .from('payment_transactions')
+          .update({
+            response_code: responseData.responseCode,
+            response_message: responseData.responseMessage,
+            status: 'threeds_required',
+            response_data: responseData,
+          })
+          .eq('id', transactionLog.id)
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: 'threeDSRequired',
+          threeDSRef: responseData.threeDSRef,
+          threeDSURL: responseData.threeDSURL,
+          threeDSRequest: responseData.threeDSRequest,
+          xref: responseData.xref,
+          orderRef,
+          transactionUnique,
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

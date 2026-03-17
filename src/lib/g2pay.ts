@@ -17,65 +17,51 @@ export interface CardDetails {
   cardholderName: string
 }
 
-// Hosted payment session response
-interface HostedSessionResponse {
+// Payment response (may include 3DS challenge)
+export interface PaymentResponse {
   success: boolean
-  hostedPaymentURL?: string
-  paymentFormData?: Record<string, string>
-  orderRef?: string
+  status?: 'threeDSRequired' | 'success'
+  // Direct success
+  transactionID?: string
   transactionUnique?: string
+  orderRef?: string
+  message?: string
+  // 3DS challenge
+  threeDSRef?: string
+  threeDSURL?: string
+  threeDSRequest?: string
+  xref?: string
+  // Error
   error?: string
 }
 
-// Create a hosted payment session via Edge Function
-// Direct API: collect card details on our page (3DS disabled in G2Pay portal)
-export const createHostedPaymentSession = async (
-  orderRef: string,
-  customerEmail?: string,
-  customerPhone?: string,
-  cardDetails?: CardDetails
-): Promise<HostedSessionResponse> => {
-  // Get current session
+/**
+ * Get an authenticated Supabase client with fresh token.
+ */
+async function getAuthenticatedClient() {
   const {
     data: { session: currentSession },
-    error: getSessionError
+    error: getSessionError,
   } = await supabase.auth.getSession()
 
   if (getSessionError) {
-    console.error('[G2Pay Hosted] Error getting session:', getSessionError)
     throw new Error('Failed to get authentication session')
   }
 
   if (!currentSession?.access_token) {
-    console.error('[G2Pay Hosted] No valid session or access token')
     throw new Error('Not authenticated. Please log in.')
   }
 
-  // Check if token is about to expire (within 5 minutes)
+  // Refresh if token expires within 5 minutes
   const expiresAt = currentSession.expires_at
   const now = Math.floor(Date.now() / 1000)
-  const timeUntilExpiry = expiresAt ? expiresAt - now : 0
-  const shouldRefresh = expiresAt && timeUntilExpiry < 300
-
-  // Refresh if needed
-  if (shouldRefresh) {
-    const {
-      data: { session: refreshedSession },
-      error: refreshError,
-    } = await supabase.auth.refreshSession()
-
+  if (expiresAt && expiresAt - now < 300) {
+    const { error: refreshError } = await supabase.auth.refreshSession()
     if (refreshError) {
-      console.error('[G2Pay Hosted] Session refresh error:', refreshError)
       throw new Error(`Session refresh failed: ${refreshError.message}. Please log in again.`)
-    }
-
-    if (!refreshedSession?.access_token) {
-      console.error('[G2Pay Hosted] No valid session after refresh')
-      throw new Error('Failed to refresh session. Please log in again.')
     }
   }
 
-  // Get the latest session to ensure we have the most current JWT token
   const {
     data: { session: latestSession },
   } = await supabase.auth.getSession()
@@ -84,8 +70,7 @@ export const createHostedPaymentSession = async (
     throw new Error('No access token available. Please log in again.')
   }
 
-  // Create a new Supabase client instance with the specific JWT token
-  const supabaseWithAuth = createClient(
+  return createClient(
     import.meta.env.VITE_SUPABASE_URL,
     import.meta.env.VITE_SUPABASE_ANON_KEY,
     {
@@ -96,61 +81,187 @@ export const createHostedPaymentSession = async (
       },
     }
   )
+}
 
-  // Call Edge Function to create Direct API payment session
+/**
+ * Create a payment session via Edge Function.
+ * Returns either success or 3DS challenge data.
+ */
+export const createHostedPaymentSession = async (
+  orderRef: string,
+  customerEmail?: string,
+  customerPhone?: string,
+  cardDetails?: CardDetails
+): Promise<PaymentResponse> => {
+  const supabaseWithAuth = await getAuthenticatedClient()
+
   const { data, error } = await supabaseWithAuth.functions.invoke('create-g2pay-hosted-session', {
-    body: {
-      orderRef,
-      customerEmail,
-      customerPhone,
-      cardDetails,
-    },
+    body: { orderRef, customerEmail, customerPhone, cardDetails },
   })
 
   if (error) {
-    console.error('[G2Pay Hosted] Edge function error:', error)
-    console.error('[G2Pay Hosted] Error details:', {
-      message: error.message,
-      context: error.context,
-      details: error
-    })
+    console.error('[G2Pay] Edge function error:', error)
 
-    // Handle JWT-specific errors
     if (error.message?.includes('JWT') || error.message?.includes('401')) {
       throw new Error('Session expired. Please refresh the page and log in again.')
     }
 
-    // Try to extract error from response body (when edge function returns 400 with error details)
-    // The error context might contain the parsed JSON response
     if (error.context && typeof error.context === 'object') {
-      const errorData = error.context as { error?: string; rawMessage?: string; responseCode?: string }
-      console.log('[G2Pay Hosted] Error context data:', errorData)
-      if (errorData.error) {
-        throw new Error(errorData.error)
-      }
-      if (errorData.rawMessage) {
-        throw new Error(errorData.rawMessage)
-      }
+      const errorData = error.context as { error?: string }
+      if (errorData.error) throw new Error(errorData.error)
     }
 
-    // Try to parse error message as JSON (sometimes the error message contains the JSON response)
     try {
       const errorJson = JSON.parse(error.message)
-      if (errorJson.error) {
-        throw new Error(errorJson.error)
-      }
-    } catch (e) {
-      // Not JSON, continue
+      if (errorJson.error) throw new Error(errorJson.error)
+    } catch {
+      // Not JSON
     }
 
     throw new Error(error.message || 'Failed to create payment session')
   }
 
-  // Check if the payment failed
   if (data && !data.success) {
-    console.error('[G2Pay Hosted] Payment failed:', data)
     throw new Error(data.error || 'Payment failed')
   }
 
   return data
+}
+
+/**
+ * Continue 3DS flow after ACS challenge response.
+ */
+export const continue3DS = async (
+  threeDSRef: string,
+  threeDSResponse: Record<string, string>,
+  orderRef: string
+): Promise<PaymentResponse> => {
+  const supabaseWithAuth = await getAuthenticatedClient()
+
+  const { data, error } = await supabaseWithAuth.functions.invoke('continue-3ds', {
+    body: { threeDSRef, threeDSResponse, orderRef },
+  })
+
+  if (error) {
+    console.error('[G2Pay] continue-3ds error:', error)
+    throw new Error(error.message || 'Failed to continue 3DS authentication')
+  }
+
+  return data
+}
+
+/**
+ * Complete order after successful payment — marks as paid + claims tickets.
+ */
+export const completeOrder = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+  const supabaseWithAuth = await getAuthenticatedClient()
+
+  const { data, error } = await supabaseWithAuth.functions.invoke('complete-g2pay-order', {
+    body: { orderId },
+  })
+
+  if (error) {
+    console.error('[G2Pay] complete-order error:', error)
+    throw new Error(error.message || 'Failed to complete order')
+  }
+
+  return data
+}
+
+/**
+ * Handle the full 3DS challenge flow.
+ * Shows iframe, waits for ACS response, continues with G2Pay.
+ * Supports recursive challenges (method URL → challenge URL).
+ */
+export function handle3DSChallenge(
+  threeDSURL: string,
+  threeDSRequest: string,
+  threeDSRef: string,
+  orderRef: string,
+  iframeId: string
+): Promise<PaymentResponse> {
+  return new Promise((resolve) => {
+    let resolved = false
+
+    // Listen for postMessage from 3DS callback page
+    const messageHandler = async (event: MessageEvent) => {
+      if (event.data?.type !== 'threeDSResponse' || resolved) return
+      resolved = true
+
+      window.removeEventListener('message', messageHandler)
+
+      console.log('[G2Pay 3DS] Received ACS response', event.data)
+
+      try {
+        // Send ACS response back to G2Pay via edge function
+        const result = await continue3DS(threeDSRef, event.data.response || {}, orderRef)
+
+        if (result.status === 'threeDSRequired' && result.threeDSURL && result.threeDSRequest && result.threeDSRef) {
+          // Recursive challenge — another 3DS step required
+          console.log('[G2Pay 3DS] Additional challenge required')
+          const recursiveResult = await handle3DSChallenge(
+            result.threeDSURL,
+            result.threeDSRequest,
+            result.threeDSRef,
+            orderRef,
+            iframeId
+          )
+          resolve(recursiveResult)
+        } else {
+          resolve(result)
+        }
+      } catch (err: any) {
+        resolve({ success: false, error: err.message })
+      }
+    }
+
+    window.addEventListener('message', messageHandler)
+
+    // Submit 3DS form to iframe
+    setTimeout(() => {
+      const iframe = document.getElementById(iframeId) as HTMLIFrameElement
+      if (!iframe) {
+        resolved = true
+        window.removeEventListener('message', messageHandler)
+        resolve({ success: false, error: '3DS iframe not found' })
+        return
+      }
+
+      // Create hidden form and submit to iframe
+      const form = document.createElement('form')
+      form.method = 'POST'
+      form.action = threeDSURL
+      form.target = iframeId
+      form.style.display = 'none'
+
+      // Parse threeDSRequest (URL-encoded or JSON)
+      let params: Record<string, string> = {}
+      if (typeof threeDSRequest === 'string' && threeDSRequest) {
+        try {
+          const searchParams = new URLSearchParams(threeDSRequest)
+          searchParams.forEach((value, key) => { params[key] = value })
+        } catch {
+          try {
+            params = JSON.parse(threeDSRequest)
+          } catch {
+            params['threeDSRequest'] = threeDSRequest
+          }
+        }
+      }
+
+      Object.entries(params).forEach(([key, value]) => {
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = key
+        input.value = String(value)
+        form.appendChild(input)
+      })
+
+      document.body.appendChild(form)
+      form.submit()
+      document.body.removeChild(form)
+
+      console.log('[G2Pay 3DS] Form submitted to iframe', { threeDSURL, params: Object.keys(params) })
+    }, 100)
+  })
 }

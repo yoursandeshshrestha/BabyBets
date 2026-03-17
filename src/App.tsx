@@ -6,6 +6,7 @@ import CompetitionsPage from './pages/Client/Competitions/Competitions'
 import CompetitionEntry from './pages/Client/CompetitionEntry/CompetitionEntry'
 import Checkout from './pages/Client/Checkout/Checkout'
 import PaymentReturn from './pages/Client/PaymentReturn/PaymentReturn'
+import Payment3DSCallback from './pages/Client/Payment3DSCallback'
 import PaymentSuccess from './pages/Client/PaymentSuccess/PaymentSuccess'
 import SignIn from './pages/Client/signin/SignIn'
 import SignUp from './pages/Client/signup/SignUp'
@@ -87,6 +88,7 @@ function App() {
         <Route path="/competitions/:slug" element={<CompetitionEntry />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/payment-return" element={<PaymentReturn />} />
+        <Route path="/payment-3ds" element={<Payment3DSCallback />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
         <Route path="/login" element={<SignIn />} />
         <Route path="/signup" element={<SignUp />} />
