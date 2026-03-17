@@ -5,7 +5,7 @@ import Footer from '@/components/common/Footer'
 import { useCartStore } from '@/store/cartStore'
 import { useAuthStore } from '@/store/authStore'
 import { useWallet } from '@/hooks/useWallet'
-import { createHostedPaymentSession } from '@/lib/g2pay'
+import { createHostedPaymentSession, handle3DSChallenge, completeOrder } from '@/lib/g2pay'
 import { supabase } from '@/lib/supabase'
 import { getReferral, clearReferral, setReferral } from '@/lib/referralTracking'
 import { showErrorToast, showWarningToast } from '@/lib/toast'
@@ -48,6 +48,7 @@ function Checkout() {
   const [isUKResident, setIsUKResident] = useState(false)
   const [isOver18, setIsOver18] = useState(false)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [show3DSModal, setShow3DSModal] = useState(false)
 
   // Validate UK mobile number format
   const validateMobileNumber = (mobile: string): boolean => {
@@ -507,7 +508,7 @@ function Checkout() {
       // Parse card expiry
       const [expiryMonth, expiryYear] = expiryDate.split('/')
 
-      // Create Direct API payment with card details (3DS disabled in G2Pay portal)
+      // Create Direct API payment with card details
       const paymentResult = await createHostedPaymentSession(
         order.id,
         session.user.email,
@@ -525,7 +526,37 @@ function Checkout() {
         throw new Error(paymentResult.error || 'Failed to create payment session')
       }
 
-      console.log('[Checkout] Payment processed successfully')
+      let finalResult = paymentResult
+
+      // Handle 3DS challenge if required
+      if (paymentResult.status === 'threeDSRequired' && paymentResult.threeDSURL && paymentResult.threeDSRequest && paymentResult.threeDSRef) {
+        console.log('[Checkout] 3DS challenge required, showing iframe')
+        setShow3DSModal(true)
+
+        finalResult = await handle3DSChallenge(
+          paymentResult.threeDSURL,
+          paymentResult.threeDSRequest,
+          paymentResult.threeDSRef,
+          order.id,
+          'threeds-iframe'
+        )
+
+        setShow3DSModal(false)
+
+        if (!finalResult.success) {
+          throw new Error(finalResult.error || '3DS authentication failed')
+        }
+      }
+
+      console.log('[Checkout] Payment successful, completing order...')
+
+      // Complete order — marks as paid + claims tickets
+      const completeResult = await completeOrder(order.id)
+      if (!completeResult.success) {
+        throw new Error(completeResult.error || 'Failed to complete order')
+      }
+
+      console.log('[Checkout] Order completed successfully')
 
       // Mark purchase as completed and clear cart
       setPurchaseCompleted(true)
@@ -561,7 +592,7 @@ function Checkout() {
       <Header />
 
       {/* Processing Modal */}
-      {loading && (
+      {loading && !show3DSModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-xl">
             <div className="flex flex-col items-center gap-3">
@@ -569,6 +600,32 @@ function Checkout() {
               <p className="text-sm text-[#2D251E]/60 font-medium">
                 {finalPrice === 0 ? 'Processing order...' : 'Processing payment...'}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3DS Challenge Modal */}
+      {show3DSModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-2xl">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-semibold" style={{ color: '#151e20' }}>
+                  Secure Authentication
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Please complete verification with your bank
+                </p>
+              </div>
+            </div>
+            <div className="p-4">
+              <iframe
+                id="threeds-iframe"
+                name="threeds-iframe"
+                className="w-full border border-gray-200 rounded-lg bg-white"
+                style={{ height: '400px' }}
+              />
             </div>
           </div>
         </div>
