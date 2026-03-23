@@ -17,6 +17,7 @@ import {
   ContactInformation,
   TermsCheckboxes,
   CardPayment,
+  DigitalWallets,
 } from './components'
 
 function Checkout() {
@@ -201,6 +202,16 @@ function Checkout() {
     clearReferral()
     setActiveReferral(null)
     setInfluencerCode('')
+  }
+
+  const handleApplePayClick = () => {
+    console.log('Apple Pay clicked')
+    showErrorToast('Apple Pay is coming soon!')
+  }
+
+  const handleGooglePayClick = () => {
+    console.log('Google Pay clicked')
+    showErrorToast('Google Pay is coming soon!')
   }
 
   const handleApplyPromoCode = async () => {
@@ -720,6 +731,15 @@ function Checkout() {
                       cardholderName={cardholderName}
                       setCardholderName={setCardholderName}
                     />
+
+                    {/* Digital Wallets */}
+                    <div className="mt-6">
+                      <DigitalWallets
+                        onGooglePayClick={handleGooglePayClick}
+                        onApplePayClick={handleApplePayClick}
+                        disabled={loading}
+                      />
+                    </div>
 
                     {/* Payment Error Display */}
                     {paymentError && (
