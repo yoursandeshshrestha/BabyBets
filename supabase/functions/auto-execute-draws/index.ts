@@ -37,11 +37,23 @@ serve(async (req) => {
   }
 
   try {
-    // Verify authorization
+    // SECURITY: Verify service role key for automated/cron job access
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+    if (!authHeader || !serviceRoleKey) {
       return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
+        JSON.stringify({ error: 'Unauthorized - Missing authentication' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Verify the Authorization header matches the service role key
+    const expectedAuth = `Bearer ${serviceRoleKey}`
+    if (authHeader !== expectedAuth) {
+      console.error('[auto-execute-draws] Unauthorized access attempt')
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Invalid credentials' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }

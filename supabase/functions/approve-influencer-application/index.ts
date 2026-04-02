@@ -10,12 +10,15 @@ interface ApproveInfluencerRequest {
   influencerId: string
 }
 
-// Helper function to generate random password
+// Helper function to generate cryptographically secure random password
+// SECURITY: Uses crypto.getRandomValues() instead of Math.random() for unpredictability
 function generateRandomPassword(length: number = 12): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*'
+  const array = new Uint32Array(length)
+  crypto.getRandomValues(array)
   let password = ''
   for (let i = 0; i < length; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length))
+    password += chars[array[i] % chars.length]
   }
   return password
 }

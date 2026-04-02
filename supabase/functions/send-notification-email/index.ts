@@ -165,6 +165,7 @@ async function getEmailTemplate(notification: EmailNotification, supabaseClient:
 
 /**
  * Main handler - Non-blocking email notification service
+ * SECURITY: This is an internal-only function that requires service role key authentication
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -172,9 +173,30 @@ serve(async (req) => {
   }
 
   try {
+    // SECURITY: Verify service role key to prevent unauthorized email sending
+    const authHeader = req.headers.get('Authorization')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+
+    if (!authHeader || !serviceRoleKey) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Missing authentication' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Verify the Authorization header matches the service role key
+    const expectedAuth = `Bearer ${serviceRoleKey}`
+    if (authHeader !== expectedAuth) {
+      console.error('[send-notification-email] Unauthorized access attempt')
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Invalid credentials' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      serviceRoleKey,
       {
         auth: {
           autoRefreshToken: false,

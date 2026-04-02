@@ -203,19 +203,8 @@ serve(async (req) => {
         )
       }
 
-
-      // Update competition tickets_sold count
-      const { error: updateCompError } = await supabaseAdmin
-        .from('competitions')
-        .update({
-          tickets_sold: (competition.tickets_sold || 0) + ticketCount,
-        })
-        .eq('id', item.competition_id)
-
-      if (updateCompError) {
-        console.error('Error updating competition:', updateCompError)
-        throw new Error('Failed to update competition tickets')
-      }
+      // SECURITY NOTE: tickets_sold counter is automatically incremented
+      // atomically within claim_tickets_atomic() to prevent race conditions
 
     }
 

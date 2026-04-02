@@ -180,19 +180,24 @@ BEGIN
   RETURNING id INTO v_snapshot_id;
 
   -- Generate random seed from multiple entropy sources
+  -- SECURITY: Using cryptographically secure randomness
   v_random_seed := encode(
     digest(
       v_snapshot_hash ||
       extract(epoch from NOW())::text ||
       gen_random_uuid()::text ||
-      random()::text,
+      encode(gen_random_bytes(16), 'hex'),
       'sha256'
     ),
     'hex'
   );
 
-  -- Generate winner index using secure random (0-based index)
-  v_winner_index := floor(random() * array_length(v_ticket_ids, 1))::INTEGER;
+  -- Generate winner index using cryptographically secure random (0-based index)
+  -- SECURITY: Using gen_random_bytes() instead of random() for unpredictable winner selection
+  v_winner_index := (
+    (('x' || encode(gen_random_bytes(4), 'hex'))::bit(32)::bigint::numeric
+    % array_length(v_ticket_ids, 1))::integer
+  );
 
   -- Get winning ticket
   SELECT t.*, p.first_name, p.last_name, p.email

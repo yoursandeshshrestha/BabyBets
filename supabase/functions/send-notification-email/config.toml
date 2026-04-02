@@ -1,2 +1,13 @@
+# send-notification-email Edge Function Configuration
+# SECURITY: Internal-only function requiring service role key authentication
+
 [build]
 bundle = true
+
+[function.send-notification-email]
+# JWT verification disabled - uses service role key check in code instead
+verify_jwt = false
+
+# Authentication: Service role key required in Authorization header
+# Called by: Backend services and other edge functions only
+# NOT for direct client access

@@ -35,8 +35,8 @@ export default function SignUp() {
       return
     }
 
-    if (password.length < 6) {
-      showErrorToast('Password must be at least 6 characters')
+    if (password.length < 12) {
+      showErrorToast('Password must be at least 12 characters for security')
       return
     }
 
