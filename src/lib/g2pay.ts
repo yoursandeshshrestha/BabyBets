@@ -84,6 +84,49 @@ async function getAuthenticatedClient() {
 }
 
 /**
+ * SECURITY FIX: Create order with server-side validation
+ * Sends only competition IDs and quantities - server validates prices
+ */
+export interface CreateValidatedOrderRequest {
+  items: Array<{ competition_id: string; quantity: number }>
+  promo_code?: string
+  use_wallet_credit?: boolean
+  mobile_number: string
+  influencer_id?: string
+}
+
+export interface ValidatedOrderResponse {
+  success: boolean
+  order_id?: string
+  subtotal_pence: number
+  discount_pence: number
+  credit_applied_pence: number
+  total_pence: number
+  error?: string
+}
+
+export const createValidatedOrder = async (
+  request: CreateValidatedOrderRequest
+): Promise<ValidatedOrderResponse> => {
+  const supabaseWithAuth = await getAuthenticatedClient()
+
+  const { data, error } = await supabaseWithAuth.functions.invoke('create-validated-order', {
+    body: request,
+  })
+
+  if (error) {
+    console.error('[G2Pay] Validated order creation error:', error)
+    throw new Error(error.message || 'Failed to create order')
+  }
+
+  if (data && !data.success) {
+    throw new Error(data.error || 'Order validation failed')
+  }
+
+  return data
+}
+
+/**
  * Create a payment session via Edge Function.
  * Returns either success or 3DS challenge data.
  */

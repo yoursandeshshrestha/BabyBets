@@ -14,6 +14,14 @@ interface ClaimWheelPrizeRequest {
   prizeAmount?: number // For credits: amount in GBP, For discounts: percentage value
 }
 
+// SECURITY: Define allowed wheel prize configurations
+// Prevents users from claiming arbitrary amounts
+const ALLOWED_WHEEL_PRIZES = {
+  credit: [1, 2, 5, 10, 20], // Allowed credit amounts in GBP
+  discount: [5, 10, 15, 20, 25, 50], // Allowed discount percentages
+  free_entry: [1] // Always 1 free entry
+}
+
 interface ClaimWheelPrizeResponse {
   success: boolean
   message: string
@@ -62,6 +70,49 @@ serve(async (req) => {
         JSON.stringify({
           success: false,
           message: 'Invalid email format'
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400
+        }
+      )
+    }
+
+    // SECURITY FIX: Validate prizeAmount against allowed configuration
+    if (prizeType === 'credit' && prizeAmount) {
+      if (!ALLOWED_WHEEL_PRIZES.credit.includes(prizeAmount)) {
+        console.error(`[Security] Invalid credit amount attempted: ${prizeAmount}`)
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: 'Invalid prize amount'
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400
+          }
+        )
+      }
+    } else if (prizeType === 'discount' && prizeAmount) {
+      if (!ALLOWED_WHEEL_PRIZES.discount.includes(prizeAmount)) {
+        console.error(`[Security] Invalid discount percentage attempted: ${prizeAmount}`)
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: 'Invalid prize amount'
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400
+          }
+        )
+      }
+    } else if (prizeType === 'free_entry' && prizeAmount && prizeAmount !== 1) {
+      console.error(`[Security] Invalid free entry amount attempted: ${prizeAmount}`)
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: 'Invalid prize amount'
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

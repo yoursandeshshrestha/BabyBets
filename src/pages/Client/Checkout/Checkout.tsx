@@ -12,6 +12,7 @@ import {
   validateAppleMerchant,
   processApplePayPayment,
   processGooglePayPayment,
+  createValidatedOrder,
 } from '@/lib/g2pay'
 import { supabase } from '@/lib/supabase'
 import { getReferral, clearReferral, setReferral } from '@/lib/referralTracking'
@@ -348,8 +349,8 @@ function Checkout() {
   }
 
   /**
-   * Create order in database — shared by all payment methods.
-   * Returns the order object or null on failure.
+   * SECURITY FIX: Create order with server-side validation
+   * Sends only competition IDs and quantities - server validates all prices
    */
   const createOrderForPayment = async () => {
     const { data: { session }, error: sessionError } = await supabase.auth.refreshSession()
@@ -359,74 +360,38 @@ function Checkout() {
       throw new Error('Your session has expired. Please log in again.')
     }
 
-    const authenticatedUserId = session.user.id
-
-    // Get influencer data
-    let influencerUserId: string | null = null
-    if (activeReferral) {
-      const { data: influencerData } = await supabase
-        .from('influencers')
-        .select('user_id')
-        .eq('id', activeReferral.influencerId)
-        .single()
-      if (influencerData) influencerUserId = influencerData.user_id
+    // Prepare order request with ONLY competition IDs and quantities
+    // Server will fetch current prices and validate everything
+    const orderRequest = {
+      items: items.map((item) => ({
+        competition_id: item.competitionId,
+        quantity: item.quantity,
+      })),
+      promo_code: appliedPromoCode || undefined,
+      use_wallet_credit: useWalletCredit,
+      mobile_number: mobileNumber,
+      influencer_id: activeReferral?.influencerId,
     }
 
-    const totalPence = Math.round(totalPrice * 100)
-    const creditPence = Math.round(appliedCredit * 100)
-    const finalPence = Math.round(finalPrice * 100)
-    const discountPence = Math.round(discountAmount * 100)
+    // Call validated order creation endpoint
+    const validatedOrder = await createValidatedOrder(orderRequest)
 
-    const orderData: any = {
-      user_id: authenticatedUserId,
-      subtotal_pence: totalPence,
-      discount_pence: discountPence,
-      credit_applied_pence: creditPence,
-      total_pence: finalPence,
-      status: 'pending',
+    if (!validatedOrder.success || !validatedOrder.order_id) {
+      throw new Error(validatedOrder.error || 'Failed to create order')
     }
-    if (influencerUserId) orderData.influencer_id = influencerUserId
 
-    const { data: order, error: orderError } = await supabase
+    // Fetch the created order
+    const { data: order, error: fetchError } = await supabase
       .from('orders')
-      .insert(orderData)
-      .select()
+      .select('*')
+      .eq('id', validatedOrder.order_id)
       .single()
 
-    if (orderError) throw orderError
-
-    // Create order items
-    const orderItems = items.map((item) => ({
-      order_id: order.id,
-      competition_id: item.competitionId,
-      ticket_count: item.quantity,
-      price_per_ticket_pence: Math.round(item.pricePerTicket * 100),
-      total_pence: Math.round(item.totalPrice * 100),
-    }))
-
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
-    if (itemsError) throw itemsError
-
-    // Update phone number
-    if (mobileNumber) {
-      const cleanedPhone = mobileNumber.replace(/\s/g, '')
-      await supabase
-        .from('profiles')
-        .update({ phone: cleanedPhone })
-        .eq('id', authenticatedUserId)
+    if (fetchError || !order) {
+      throw new Error('Failed to fetch created order')
     }
 
-    // Deduct wallet credits if any
-    const creditPenceToDeduct = Math.round(appliedCredit * 100)
-    if (creditPenceToDeduct > 0) {
-      await supabase.rpc('debit_wallet_credits', {
-        p_user_id: authenticatedUserId,
-        p_amount_pence: creditPenceToDeduct,
-        p_description: `Order #${order.id.slice(0, 8)}`,
-      })
-    }
-
-    return { order, session }
+    return { order, session, validatedOrder }
   }
 
   const handlePayment = async () => {
@@ -436,105 +401,21 @@ function Checkout() {
 
       if (items.length === 0) throw new Error('Your cart is empty')
 
-      const totalPence = Math.round(totalPrice * 100)
-      if (totalPence <= 0) throw new Error('Order total must be greater than £0.00. Please check your cart items.')
-
-      const invalidItems = items.filter(
-        (item) => !item.pricePerTicket || item.pricePerTicket <= 0 || !item.totalPrice || item.totalPrice <= 0
-      )
-      if (invalidItems.length > 0) {
-        throw new Error(
-          `Some items in your cart have invalid prices. Please remove and re-add: ${invalidItems.map((i) => i.competitionTitle).join(', ')}`
-        )
+      if (!validateMobileNumber(mobileNumber)) {
+        throw new Error('Please enter a valid UK mobile number (e.g., 07xxx xxxxxx)')
       }
 
-      const { data: { session }, error: sessionError } = await supabase.auth.refreshSession()
+      // SECURITY FIX: Use validated order creation
+      // Server validates prices, discounts, and wallet credits
+      const { order, session, validatedOrder } = await createOrderForPayment()
 
-      if (sessionError) {
-        navigate('/login?redirect=/checkout&error=session_expired')
-        throw new Error('Your session has expired. Please log in again.')
-      }
-
-      if (!session?.user || !session?.access_token) {
-        navigate('/login?redirect=/checkout&error=no_session')
-        throw new Error('User not authenticated. Please log in again.')
-      }
-
-      const authenticatedUserId = session.user.id
-
-      let influencerUserId: string | null = null
-      if (activeReferral) {
-        const { data: influencerData } = await supabase
-          .from('influencers')
-          .select('user_id')
-          .eq('id', activeReferral.influencerId)
-          .single()
-        if (influencerData) influencerUserId = influencerData.user_id
-      }
-
-      const creditPence = Math.round(appliedCredit * 100)
-      const finalPence = Math.round(finalPrice * 100)
-      const discountPence = Math.round(discountAmount * 100)
-
-      const orderData: any = {
-        user_id: authenticatedUserId,
-        subtotal_pence: totalPence,
-        discount_pence: discountPence,
-        credit_applied_pence: creditPence,
-        total_pence: finalPence,
-        status: 'pending',
-      }
-      if (influencerUserId) orderData.influencer_id = influencerUserId
-
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert(orderData)
-        .select()
-        .single()
-
-      if (orderError) {
-        console.error('Order creation error:', orderError)
-        throw orderError
-      }
-
-      const { data: verifyOrder, error: verifyError } = await supabase
-        .from('orders')
-        .select('id, user_id')
-        .eq('id', order.id)
-        .single()
-
-      if (verifyError || !verifyOrder) {
-        console.error('Order verification failed:', verifyError)
-        throw new Error('Failed to verify order creation')
-      }
-
-      const orderItems = items.map((item) => ({
-        order_id: order.id,
-        competition_id: item.competitionId,
-        ticket_count: item.quantity,
-        price_per_ticket_pence: Math.round(item.pricePerTicket * 100),
-        total_pence: Math.round(item.totalPrice * 100),
-      }))
-
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems)
-      if (itemsError) {
-        console.error('❌ Order items error:', itemsError)
-        throw itemsError
-      }
-
-      if (mobileNumber) {
-        const cleanedPhone = mobileNumber.replace(/\s/g, '')
-        await supabase
-          .from('profiles')
-          .update({ phone: cleanedPhone })
-          .eq('id', authenticatedUserId)
-      }
+      const finalTotalPence = validatedOrder.total_pence
 
       // If fully paid with wallet credit
-      if (finalPrice === 0) {
+      if (finalTotalPence === 0) {
         const { error: completeError } = await supabase.rpc('complete_order_with_wallet', {
           p_order_id: order.id,
-          p_user_id: authenticatedUserId,
+          p_user_id: session.user.id,
         })
 
         if (completeError) {
@@ -551,7 +432,7 @@ function Checkout() {
               orderNumber: order.id.slice(0, 8).toUpperCase(),
               orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
               totalTickets,
-              orderTotal: (totalPrice / 100).toFixed(2),
+              orderTotal: (validatedOrder.subtotal_pence / 100).toFixed(2),
               ticketsUrl: `${window.location.origin}/account?tab=tickets`
             }
           ).catch((err) => { console.error('Failed to send order confirmation email:', err) })
@@ -563,18 +444,7 @@ function Checkout() {
         return
       }
 
-      if (!validateMobileNumber(mobileNumber)) {
-        throw new Error('Please enter a valid UK mobile number (e.g., 07xxx xxxxxx)')
-      }
-
-      if (creditPence > 0) {
-        await supabase.rpc('debit_wallet_credits', {
-          p_user_id: authenticatedUserId,
-          p_amount_pence: creditPence,
-          p_description: `Order #${order.id.slice(0, 8)}`,
-        })
-      }
-
+      // Continue with card payment for remaining balance
       const [expiryMonth, expiryYear] = expiryDate.split('/')
 
       const paymentResult = await createHostedPaymentSession(
@@ -684,8 +554,8 @@ function Checkout() {
       try {
         setLoading(true)
 
-        // Create order after user authorises — prevents orphan orders on cancel
-        const { order, session: authSession } = await createOrderForPayment()
+        // SECURITY FIX: Create order after user authorises with server validation
+        const { order, session: authSession, validatedOrder } = await createOrderForPayment()
 
         const paymentToken = event.payment.token.paymentData
 
@@ -778,8 +648,8 @@ function Checkout() {
       // User authorises in Google Pay sheet
       const paymentData = await googlePayClientInstance.loadPaymentData(paymentDataRequest)
 
-      // Create order after user authorises
-      const { order, session: authSession } = await createOrderForPayment()
+      // SECURITY FIX: Create order after user authorises with server validation
+      const { order, session: authSession, validatedOrder } = await createOrderForPayment()
 
       const token = paymentData.paymentMethodData.tokenizationData.token
 
