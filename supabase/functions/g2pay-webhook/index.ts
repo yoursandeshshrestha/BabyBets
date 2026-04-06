@@ -192,7 +192,7 @@ serve(async (req) => {
     // Get order details
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('id, user_id, status, total_pence')
+      .select('id, user_id, status, total_pence, credit_applied_pence')
       .eq('id', orderId)
       .single()
 
@@ -262,6 +262,24 @@ serve(async (req) => {
     if (updateError) {
       console.error('[Webhook] Failed to update order status:', updateError)
       throw new Error(`Failed to update order: ${updateError.message}`)
+    }
+
+    // Deduct wallet credits if any were applied
+    if (order.credit_applied_pence && order.credit_applied_pence > 0) {
+      console.log(`[Webhook] Deducting ${order.credit_applied_pence} pence from wallet for order ${orderId}`)
+      const { error: walletError } = await supabaseAdmin.rpc('deduct_wallet_credits', {
+        p_user_id: order.user_id,
+        p_amount_pence: order.credit_applied_pence,
+        p_order_id: orderId
+      })
+
+      if (walletError) {
+        console.error('[Webhook] Error deducting wallet credits:', walletError)
+        // Don't fail the order completion if wallet deduction fails
+        // Admin can manually adjust if needed
+      } else {
+        console.log(`[Webhook] Successfully deducted ${order.credit_applied_pence} pence from wallet`)
+      }
     }
 
     // Get order items to allocate tickets
@@ -360,10 +378,10 @@ serve(async (req) => {
         // Calculate total tickets
         const totalTickets = (orderItems || []).reduce((sum, item) => sum + item.ticket_count, 0)
 
-        // Get order with created_at timestamp
+        // Get order with created_at timestamp and pricing details
         supabaseAdmin
           .from('orders')
-          .select('created_at')
+          .select('created_at, subtotal_pence, credit_applied_pence')
           .eq('id', orderId)
           .single()
           .then(({ data: orderWithDate, error: orderError }) => {
@@ -393,7 +411,8 @@ serve(async (req) => {
                       year: 'numeric',
                     }),
                 totalTickets,
-                orderTotal: (order.total_pence / 100).toFixed(2),
+                orderTotal: ((orderWithDate?.subtotal_pence || 0) / 100).toFixed(2),
+                walletCreditUsed: ((orderWithDate?.credit_applied_pence || 0) / 100).toFixed(2),
                 ticketsUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
               }
             }

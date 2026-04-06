@@ -59,17 +59,7 @@ export function AddBalanceDialog({
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + parseInt(expiryDays))
 
-      // Get current wallet balance
-      const { data: balanceData } = await supabase
-        .from('wallet_balance_view')
-        .select('available_balance_pence')
-        .eq('user_id', user.id)
-        .maybeSingle() // Use maybeSingle() to handle users with no credits
-
-      const currentBalance = balanceData?.available_balance_pence || 0
-      const balanceAfter = currentBalance + amountPence
-
-      // Insert wallet credit
+      // Insert wallet credit (transaction is auto-created by database trigger)
       const { error: creditError } = await supabase.from('wallet_credits').insert({
         user_id: user.id,
         amount_pence: amountPence,
@@ -82,18 +72,7 @@ export function AddBalanceDialog({
 
       if (creditError) throw creditError
 
-      // Insert wallet transaction
-      const { error: transactionError } = await supabase.from('wallet_transactions').insert({
-        user_id: user.id,
-        type: 'credit',
-        amount_pence: amountPence,
-        balance_after_pence: balanceAfter,
-        description: description.trim(),
-      })
-
-      if (transactionError) throw transactionError
-
-      // Email sent automatically by database trigger
+      // Email and transaction are automatically created by database triggers
 
       // Success - close dialog and refresh
       showSuccessToast('Balance added successfully')

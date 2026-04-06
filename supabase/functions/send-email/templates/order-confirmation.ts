@@ -24,6 +24,16 @@ export function getOrderConfirmationHTML(name: string, data: Record<string, unkn
           <td>Order Total:</td>
           <td><strong>£${data.orderTotal || '0.00'}</strong></td>
         </tr>
+        ${data.walletCreditUsed && parseFloat(data.walletCreditUsed as string) > 0 ? `
+        <tr>
+          <td>Wallet Credit Used:</td>
+          <td><strong>-£${data.walletCreditUsed}</strong></td>
+        </tr>
+        <tr style="border-top: 2px solid #e5e7eb;">
+          <td>Amount Charged:</td>
+          <td><strong>£${((parseFloat(data.orderTotal as string) - parseFloat(data.walletCreditUsed as string)) || 0).toFixed(2)}</strong></td>
+        </tr>
+        ` : ''}
       </table>
     </div>
 
@@ -45,7 +55,9 @@ Order Details:
 - Order Number: ${data.orderNumber || 'N/A'}
 - Order Date: ${data.orderDate || new Date().toLocaleDateString()}
 - Total Tickets: ${data.totalTickets || 0}
-- Order Total: £${data.orderTotal || '0.00'}
+- Order Total: £${data.orderTotal || '0.00'}${data.walletCreditUsed && parseFloat(data.walletCreditUsed as string) > 0 ? `
+- Wallet Credit Used: -£${data.walletCreditUsed}
+- Amount Charged: £${((parseFloat(data.orderTotal as string) - parseFloat(data.walletCreditUsed as string)) || 0).toFixed(2)}` : ''}
 
 View your tickets: ${data.ticketsUrl || 'https://babybets.co.uk/account/tickets'}
 

@@ -81,10 +81,10 @@ serve(async (req) => {
       .limit(1)
       .single()
 
-    // Get order details (includes user_id)
+    // Get order details (includes user_id and credit_applied_pence)
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('id, user_id, status')
+      .select('id, user_id, status, credit_applied_pence')
       .eq('id', orderId)
       .single()
 
@@ -140,6 +140,27 @@ serve(async (req) => {
       throw new Error(`Failed to update order status: ${updateError.message || JSON.stringify(updateError)}`)
     }
 
+    // Deduct wallet credits if any were applied
+    if (order.credit_applied_pence && order.credit_applied_pence > 0) {
+      console.log(`Deducting ${order.credit_applied_pence} pence from wallet for order ${orderId}`)
+      console.log('Order data:', JSON.stringify({ id: order.id, user_id: order.user_id, credit_applied_pence: order.credit_applied_pence }))
+
+      const { data: deductResult, error: walletError } = await supabaseAdmin.rpc('deduct_wallet_credits', {
+        p_user_id: order.user_id,
+        p_amount_pence: order.credit_applied_pence,
+        p_order_id: orderId
+      })
+
+      if (walletError) {
+        console.error('WALLET DEDUCTION FAILED:', JSON.stringify(walletError))
+        // CRITICAL: Throw error so user knows wallet wasn't deducted
+        throw new Error(`Failed to deduct wallet credits: ${walletError.message || JSON.stringify(walletError)}`)
+      } else {
+        console.log(`Successfully deducted ${order.credit_applied_pence} pence from wallet`)
+      }
+    } else {
+      console.log('No wallet credits to deduct:', { credit_applied_pence: order.credit_applied_pence })
+    }
 
     // Get order items to allocate tickets
     const { data: orderItems, error: itemsError } = await supabaseAdmin
@@ -241,7 +262,7 @@ serve(async (req) => {
         // Get order with created_at timestamp
         supabaseAdmin
           .from('orders')
-          .select('created_at, total_pence')
+          .select('created_at, subtotal_pence, credit_applied_pence')
           .eq('id', orderId)
           .single()
           .then(({ data: orderWithDate, error: orderError }) => {
@@ -271,7 +292,8 @@ serve(async (req) => {
                       year: 'numeric',
                     }),
                 totalTickets,
-                orderTotal: ((orderWithDate?.total_pence || 0) / 100).toFixed(2),
+                orderTotal: ((orderWithDate?.subtotal_pence || 0) / 100).toFixed(2),
+                walletCreditUsed: ((orderWithDate?.credit_applied_pence || 0) / 100).toFixed(2),
                 ticketsUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
               }
             }
