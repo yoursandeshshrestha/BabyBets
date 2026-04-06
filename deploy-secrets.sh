@@ -14,10 +14,10 @@ if ! command -v supabase &> /dev/null; then
     exit 1
 fi
 
-# Check if .env file exists
-if [ ! -f ".env" ]; then
-    echo "❌ Error: .env file not found"
-    echo "Please create a .env file with all required secrets"
+# Check if .env.supabase file exists
+if [ ! -f ".env.supabase" ]; then
+    echo "❌ Error: .env.supabase file not found"
+    echo "Please create a .env.supabase file with all required secrets"
     echo ""
     echo "Required secrets:"
     echo "  - MAILGUN_API_KEY"
@@ -25,22 +25,21 @@ if [ ! -f ".env" ]; then
     echo "  - SMTP_FROM"
     echo "  - G2PAY_MERCHANT_ID"
     echo "  - G2PAY_SIGNATURE_KEY"
-    echo "  - G2PAY_GATEWAY_URL or G2PAY_DIRECT_API_URL"
-    echo "  - G2PAY_HOSTED_URL (optional, for Apple Pay)"
+    echo "  - G2PAY_DIRECT_API_URL"
+    echo "  - G2PAY_HOSTED_URL (optional, for Apple Pay merchant validation)"
     echo "  - SUPABASE_URL"
     echo "  - SUPABASE_ANON_KEY"
     echo "  - SUPABASE_SERVICE_ROLE_KEY"
     echo "  - PUBLIC_SITE_URL"
-    echo "  - SITE_URL"
     echo ""
     echo "See .env.example for template"
     exit 1
 fi
 
-# Source .env file
-echo "📄 Loading secrets from .env file..."
+# Source .env.supabase file
+echo "📄 Loading secrets from .env.supabase file..."
 set -a
-source .env
+source .env.supabase
 set +a
 
 # Validate required secrets
@@ -50,11 +49,11 @@ REQUIRED_SECRETS=(
     "SMTP_FROM"
     "G2PAY_MERCHANT_ID"
     "G2PAY_SIGNATURE_KEY"
+    "G2PAY_DIRECT_API_URL"
     "SUPABASE_URL"
     "SUPABASE_ANON_KEY"
     "SUPABASE_SERVICE_ROLE_KEY"
     "PUBLIC_SITE_URL"
-    "SITE_URL"
 )
 
 MISSING_SECRETS=()
@@ -64,18 +63,13 @@ for secret in "${REQUIRED_SECRETS[@]}"; do
     fi
 done
 
-# Check for either G2PAY_GATEWAY_URL or G2PAY_DIRECT_API_URL
-if [ -z "$G2PAY_GATEWAY_URL" ] && [ -z "$G2PAY_DIRECT_API_URL" ]; then
-    MISSING_SECRETS+=("G2PAY_GATEWAY_URL or G2PAY_DIRECT_API_URL")
-fi
-
 if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
     echo "❌ Missing required secrets:"
     for secret in "${MISSING_SECRETS[@]}"; do
         echo "   - $secret"
     done
     echo ""
-    echo "Please add these to your .env file"
+    echo "Please add these to your .env.supabase file"
     exit 1
 fi
 
@@ -94,17 +88,7 @@ echo ""
 echo "💳 Deploying G2Pay Payment Secrets (Direct API Integration)..."
 supabase secrets set G2PAY_MERCHANT_ID="$G2PAY_MERCHANT_ID"
 supabase secrets set G2PAY_SIGNATURE_KEY="$G2PAY_SIGNATURE_KEY"
-
-# Use G2PAY_DIRECT_API_URL if available, otherwise fallback to G2PAY_GATEWAY_URL
-if [ ! -z "$G2PAY_DIRECT_API_URL" ]; then
-    supabase secrets set G2PAY_DIRECT_API_URL="$G2PAY_DIRECT_API_URL"
-    G2PAY_URL="$G2PAY_DIRECT_API_URL"
-    echo "✅ Using G2PAY_DIRECT_API_URL"
-elif [ ! -z "$G2PAY_GATEWAY_URL" ]; then
-    supabase secrets set G2PAY_GATEWAY_URL="$G2PAY_GATEWAY_URL"
-    G2PAY_URL="$G2PAY_GATEWAY_URL"
-    echo "✅ Using G2PAY_GATEWAY_URL"
-fi
+supabase secrets set G2PAY_DIRECT_API_URL="$G2PAY_DIRECT_API_URL"
 
 # Deploy G2Pay Hosted URL for Apple Pay merchant validation
 if [ ! -z "$G2PAY_HOSTED_URL" ]; then
@@ -116,7 +100,7 @@ echo "✅ Payment secrets deployed"
 echo ""
 echo "📋 G2Pay Production Configuration:"
 echo "   • Merchant ID: $G2PAY_MERCHANT_ID"
-echo "   • API URL: $G2PAY_URL"
+echo "   • Direct API URL: $G2PAY_DIRECT_API_URL"
 echo "   • Signature Key: [HIDDEN]"
 echo ""
 
@@ -130,7 +114,6 @@ echo ""
 # Deploy Public Site URL
 echo "🌐 Deploying Public Site Configuration..."
 supabase secrets set PUBLIC_SITE_URL="$PUBLIC_SITE_URL"
-supabase secrets set SITE_URL="$SITE_URL"
 echo "✅ Public site URL deployed"
 echo ""
 
@@ -142,10 +125,9 @@ echo "   ✓ MAILGUN_DOMAIN - Email sending domain"
 echo "   ✓ SMTP_FROM - From email address"
 echo "   ✓ G2PAY_MERCHANT_ID - G2Pay production merchant ID"
 echo "   ✓ G2PAY_SIGNATURE_KEY - G2Pay webhook signature verification"
-echo "   ✓ G2PAY_GATEWAY_URL / G2PAY_DIRECT_API_URL - G2Pay direct API endpoint"
-echo "   ✓ G2PAY_HOSTED_URL - G2Pay hosted page (optional, for Apple Pay)"
-echo "   ✓ PUBLIC_SITE_URL - Public website URL (for emails)"
-echo "   ✓ SITE_URL - Site URL (for redirects)"
+echo "   ✓ G2PAY_DIRECT_API_URL - G2Pay direct API endpoint"
+echo "   ✓ G2PAY_HOSTED_URL - G2Pay hosted endpoint (for Apple Pay merchant validation)"
+echo "   ✓ PUBLIC_SITE_URL - Public website URL (for emails and redirects)"
 echo ""
 echo "💳 Payment Integration Notes:"
 echo "   • Using G2Pay Direct API Integration"

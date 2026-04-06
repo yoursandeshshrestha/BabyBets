@@ -3,13 +3,26 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+
+  // Remove console & debugger in production builds only
+  esbuild: {
+    drop: mode === 'production' ? ['console', 'debugger'] : [],
+  },
+
+  // Production build optimizations
+  build: {
+    sourcemap: true, // Generate sourcemaps for debugging
+    minify: 'esbuild', // Use esbuild for faster builds
+  },
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
+
   server: {
     host: '0.0.0.0', // Allow access from network devices
     port: 7001,
@@ -18,7 +31,7 @@ export default defineConfig({
     },
     hmr: {
       overlay: true,
-      host: '192.168.1.2', // Your local IP for HMR
+      // Auto-detect host for HMR (no hardcoded IP)
     },
   },
-})
+}))

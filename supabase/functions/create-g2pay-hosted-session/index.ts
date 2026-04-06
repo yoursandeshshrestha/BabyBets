@@ -228,7 +228,7 @@ serve(async (req) => {
     const userAgent = req.headers.get('user-agent') || 'Mozilla/5.0'
 
     // Build callback URL for 3DS redirect
-    const siteUrl = Deno.env.get('SITE_URL') || Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
+    const siteUrl = Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
     const threeDSRedirectURL = `${siteUrl}/payment-3ds?orderRef=${orderRef}`
 
     // Prepare request data for G2Pay Direct API with 3DS support

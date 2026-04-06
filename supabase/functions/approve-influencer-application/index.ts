@@ -219,12 +219,12 @@ serve(async (req) => {
     let emailError = null
 
     try {
-      const siteUrl = Deno.env.get('SITE_URL')
+      const siteUrl = Deno.env.get('PUBLIC_SITE_URL')
       const supabaseUrl = Deno.env.get('SUPABASE_URL')
       const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
       if (!siteUrl || !supabaseUrl || !serviceRoleKey) {
-        throw new Error('Missing configuration: SITE_URL, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY are required')
+        throw new Error('Missing configuration: PUBLIC_SITE_URL, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY are required')
       }
 
       let emailNotification: any

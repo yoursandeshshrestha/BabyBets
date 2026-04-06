@@ -103,7 +103,7 @@ serve(async (req) => {
             prizeDescription: draw.competition_title,
             ticketNumber: draw.winning_ticket_number.toString(),
             competitionTitle: draw.competition_title,
-            claimUrl: `${Deno.env.get('SITE_URL') || 'https://babybets.co.uk'}/account?tab=prizes`
+            claimUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=prizes`
           }
         }
 

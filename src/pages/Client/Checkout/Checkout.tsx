@@ -557,6 +557,14 @@ function Checkout() {
         // SECURITY FIX: Create order after user authorises with server validation
         const { order, session: authSession, validatedOrder } = await createOrderForPayment()
 
+        // Verify the payment amount matches backend validation
+        const expectedAmount = (validatedOrder.total_pence / 100).toFixed(2)
+        if (finalPrice.toFixed(2) !== expectedAmount) {
+          console.error('[ApplePay] Price mismatch - frontend:', finalPrice.toFixed(2), 'backend:', expectedAmount)
+          session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
+          throw new Error('Price validation failed. Please refresh and try again.')
+        }
+
         const paymentToken = event.payment.token.paymentData
 
         const paymentResult = await processApplePayPayment(
@@ -650,6 +658,13 @@ function Checkout() {
 
       // SECURITY FIX: Create order after user authorises with server validation
       const { order, session: authSession, validatedOrder } = await createOrderForPayment()
+
+      // Verify the payment amount matches backend validation
+      const expectedAmount = (validatedOrder.total_pence / 100).toFixed(2)
+      if (finalPrice.toFixed(2) !== expectedAmount) {
+        console.error('[GooglePay] Price mismatch - frontend:', finalPrice.toFixed(2), 'backend:', expectedAmount)
+        throw new Error('Price validation failed. Please refresh and try again.')
+      }
 
       const token = paymentData.paymentMethodData.tokenizationData.token
 

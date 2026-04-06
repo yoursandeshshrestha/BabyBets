@@ -1,13 +1,12 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getCorsHeaders } from '../_shared/cors.ts'
 
 // Webhook endpoint - receives payment confirmations from G2Pay backend
 // This provides reliability even if user closes browser after payment
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+// SECURITY: Webhook needs wildcard CORS since G2Pay calls it from their servers
+const corsHeaders = getCorsHeaders(true) // true = allow wildcard for external webhooks
 
 // Verify G2Pay response signature using raw response body
 // Per G2Pay support: Only exclude signature field, sort alphabetically, keep URL-encoded
@@ -371,7 +370,7 @@ serve(async (req) => {
                       }),
                   totalTickets,
                   orderTotal: (order.total_pence / 100).toFixed(2),
-                  ticketsUrl: `${Deno.env.get('SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
+                  ticketsUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
                 }
               }
 
