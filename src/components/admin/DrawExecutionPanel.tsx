@@ -76,25 +76,7 @@ export function DrawExecutionPanel({ competition, onDrawExecuted }: DrawExecutio
       // Execute the actual draw
       const result = await executeDraw(competition.id)
 
-      // Send prize win email to winner (non-blocking)
-      if (result.winner_email && result.winner_display_name) {
-        import('@/services/email.service').then((emailService) => {
-          emailService.emailService.sendPrizeWinEmail(
-            result.winner_email,
-            result.winner_display_name,
-            {
-              prizeName: result.prize_name || competition.title,
-              prizeValue: result.prize_value || competition.total_value_gbp,
-              prizeDescription: competition.title,
-              ticketNumber: result.winning_ticket_number?.toString(),
-              competitionTitle: competition.title,
-              claimUrl: `${window.location.origin}/account?tab=prizes`
-            }
-          ).catch((emailError: Error) => {
-            console.error('Failed to queue prize win email:', emailError)
-          })
-        })
-      }
+      // Email will be sent automatically by auto-execute-draws Edge Function
 
       // Phase 2: Selecting animation (1.5 seconds)
       await new Promise(resolve => setTimeout(resolve, 1500))

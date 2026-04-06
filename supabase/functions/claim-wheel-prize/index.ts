@@ -2,9 +2,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-// SECURITY: Use environment-aware CORS
-const corsHeaders = getCorsHeaders()
-
 interface ClaimWheelPrizeRequest {
   email: string
   prizeLabel: string
@@ -45,6 +42,13 @@ serve(async (req) => {
         },
       }
     )
+
+    // Get webhook config from database for email sending
+    const { data: webhookConfig } = await supabaseAdmin
+      .from('webhook_config')
+      .select('webhook_secret, supabase_url')
+      .limit(1)
+      .single()
 
     const { email, prizeLabel, prizeValue, prizeType, prizeAmount }: ClaimWheelPrizeRequest = await req.json()
 
@@ -295,37 +299,43 @@ serve(async (req) => {
         emailData.expiryMinutes = 60
       }
 
-      // Call email function directly using fetch
-      const emailFunctionUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification-email`
-      const emailResponse = await fetch(emailFunctionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-        },
-        body: JSON.stringify({
-          type: 'wheel_prize',
-          recipientEmail: email,
-          recipientName: userId ? undefined : 'there',
-          data: emailData,
-        }),
-      })
+      // Call email function using webhook secret authentication
+      if (webhookConfig?.webhook_secret) {
+        const emailResponse = await fetch(
+          `${webhookConfig.supabase_url}/functions/v1/send-email`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Webhook-Secret': webhookConfig.webhook_secret,
+            },
+            body: JSON.stringify({
+              type: 'wheel_prize',
+              recipientEmail: email,
+              recipientName: userId ? undefined : 'there',
+              data: emailData,
+            }),
+          }
+        )
 
-      if (!emailResponse.ok) {
-        const errorText = await emailResponse.text()
-        console.error('Error sending email:', errorText)
+        if (!emailResponse.ok) {
+          const errorText = await emailResponse.text()
+          console.error('Error sending email:', errorText)
+        } else {
+          console.log('Email sent successfully')
+
+          // Update email sent status
+          await supabaseAdmin
+            .from('wheel_claims')
+            .update({
+              email_sent: true,
+              email_sent_at: new Date().toISOString()
+            })
+            .eq('email', email.toLowerCase())
+            .eq('prize_value', prizeValue)
+        }
       } else {
-        console.log('Email sent successfully')
-
-        // Update email sent status
-        await supabaseAdmin
-          .from('wheel_claims')
-          .update({
-            email_sent: true,
-            email_sent_at: new Date().toISOString()
-          })
-          .eq('email', email.toLowerCase())
-          .eq('prize_value', prizeValue)
+        console.error('Webhook config not available - cannot send email')
       }
 
     } catch (emailError) {

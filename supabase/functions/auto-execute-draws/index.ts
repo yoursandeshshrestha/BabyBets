@@ -70,6 +70,17 @@ serve(async (req) => {
       }
     )
 
+    // Get webhook config from database for email sending
+    const { data: webhookConfig } = await supabaseClient
+      .from('webhook_config')
+      .select('webhook_secret, supabase_url')
+      .limit(1)
+      .single()
+
+    if (!webhookConfig?.webhook_secret) {
+      console.warn('Webhook config not found - emails may not be sent')
+    }
+
     console.log('Starting automatic draw execution...')
 
     // Call the database function to auto-execute draws
@@ -107,25 +118,30 @@ serve(async (req) => {
           }
         }
 
-        fetch(
-          `${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification-email`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
-            },
-            body: JSON.stringify(emailPayload),
-          }
-        ).then((emailResponse) => {
-          if (!emailResponse.ok) {
-            console.error(`  ⚠️  Failed to queue prize win email to ${draw.winner_email}`)
-          } else {
-            console.log(`  ✅ Prize win email queued for ${draw.winner_email}`)
-          }
-        }).catch((emailError) => {
-          console.error(`  ⚠️  Error queueing prize win email:`, emailError)
-        })
+        // Send email using webhook secret authentication
+        if (webhookConfig?.webhook_secret) {
+          fetch(
+            `${webhookConfig.supabase_url}/functions/v1/send-email`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Webhook-Secret': webhookConfig.webhook_secret,
+              },
+              body: JSON.stringify(emailPayload),
+            }
+          ).then((emailResponse) => {
+            if (!emailResponse.ok) {
+              console.error(`  ⚠️  Failed to queue prize win email to ${draw.winner_email}`)
+            } else {
+              console.log(`  ✅ Prize win email queued for ${draw.winner_email}`)
+            }
+          }).catch((emailError) => {
+            console.error(`  ⚠️  Error queueing prize win email:`, emailError)
+          })
+        } else {
+          console.warn(`  ⚠️  Skipping email - webhook config not available`)
+        }
       }
     }
 

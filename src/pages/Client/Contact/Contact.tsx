@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Mail, Clock, Instagram, Facebook, Send, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
 import Header from '@/components/common/Header'
 import Footer from '@/components/common/Footer'
-import { emailService } from '@/services/email.service'
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -34,21 +34,21 @@ export default function Contact() {
     const text = `New Contact Form Submission\n\nName: ${formData.name}\nEmail: ${formData.email}\nSubject: ${formData.subject}\nMessage:\n${formData.message}`
 
     try {
-      const result = await emailService.sendCustomEmail(
-        'hello@babybets.co.uk',
-        `Contact Form: ${formData.subject}`,
-        html,
-        text,
-      )
+      const { data, error } = await supabase.functions.invoke('send-contact-form', {
+        body: { name: formData.name, email: formData.email, subject: formData.subject, message: formData.message }
+      })
 
-      if (result.success) {
+      if (error) throw error
+
+      if (data?.success) {
         toast.success("Message sent! We'll get back to you as soon as possible.")
         setFormData({ name: '', email: '', subject: '', message: '' })
       } else {
         toast.error('Something went wrong. Please try emailing us directly.')
       }
-    } catch {
-      toast.error('Something went wrong. Please try emailing us directly.')
+    } catch (error) {
+      console.error('Contact form error:', error)
+      toast.error('Something went wrong. Please try emailing us directly at hello@babybets.co.uk')
     } finally {
       setIsSubmitting(false)
     }

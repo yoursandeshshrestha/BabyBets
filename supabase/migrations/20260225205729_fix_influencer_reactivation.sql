@@ -91,6 +91,3 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION public.protect_influencer_critical_fields IS
-  'Prevents non-admin users from modifying critical system-managed fields. Allows: admin users, influencer approvals (user_id null→value + is_active false→true), influencer reactivations (user_id unchanged + is_active false→true), and SECURITY DEFINER commission functions with specific field patterns.';

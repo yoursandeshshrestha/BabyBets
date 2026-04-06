@@ -36,7 +36,6 @@ import { Button } from '@/components/ui/button'
 import { showSuccessToast, showErrorToast } from '@/lib/toast'
 import { useSidebarCounts } from '@/contexts/SidebarCountsContext'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
-import { emailService } from '@/services/email.service'
 
 type PrizeFulfillment = Database['public']['Tables']['prize_fulfillments']['Row']
 type FulfillmentStatus = Database['public']['Enums']['fulfillment_status']
@@ -353,20 +352,7 @@ export default function Fulfillments() {
             delivered: 'delivered'
           }
 
-          emailService.sendPrizeFulfillmentUpdateEmail(
-            fulfillment.user_email,
-            fulfillment.user_name,
-            {
-              prizeName: fulfillment.prize_name,
-              status: statusMessages[newStatus] || newStatus,
-              trackingNumber: trackingNumber || fulfillment.tracking_number || undefined,
-              trackingUrl: trackingNumber ? `https://track.royal-mail.com/track?trackingNumber=${trackingNumber}` : undefined,
-              estimatedDelivery: newStatus === 'dispatched' ? '3-5 business days' : undefined
-            }
-          ).catch(err => {
-            console.error('Failed to send prize fulfillment update email:', err)
-            // Don't throw - email failure shouldn't affect the operation
-          })
+          // Email sent automatically by database trigger on prize_fulfillments UPDATE
         }
       }
 

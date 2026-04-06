@@ -102,6 +102,11 @@ serve(async (req) => {
       )
     }
 
+    // Declare variables for email logic
+    let userId: string
+    let tempPassword: string | null = null
+    let requiresPasswordEmail = false
+
     // Check if this is a new application (user_id is null)
     if (influencer.user_id) {
       // Already has a user account, just reactivate
@@ -121,110 +126,121 @@ serve(async (req) => {
         .update({ role: 'influencer' })
         .eq('id', influencer.user_id)
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'Influencer reactivated',
-          requiresPasswordEmail: false
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // New application - need to create user account
-    if (!influencer.email) {
-      return new Response(
-        JSON.stringify({ error: 'Cannot approve: email address is missing' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Check if user already exists with this email
-    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
-    const existingUser = existingUsers?.users.find(u => u.email === influencer.email)
-
-    let userId: string
-    let tempPassword: string | null = null
-    let requiresPasswordEmail = false
-
-    if (existingUser) {
-      // User already exists - just link them to the influencer record
-      userId = existingUser.id
-
-      // Update user metadata to include influencer role
-      await supabaseAdmin.auth.admin.updateUserById(userId, {
-        user_metadata: {
-          ...existingUser.user_metadata,
-          role: 'influencer'
-        }
-      })
-
+      // Set values for email sending
+      userId = influencer.user_id
       requiresPasswordEmail = false
+      tempPassword = null
     } else {
-      // Create new user account
-      tempPassword = generateRandomPassword(12)
-
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: influencer.email,
-        password: tempPassword,
-        email_confirm: true,
-        user_metadata: {
-          full_name: influencer.display_name,
-          role: 'influencer'
-        }
-      })
-
-      if (authError || !authData.user) {
-        console.error('Error creating user account:', authError)
+      // New application - need to create user account
+      if (!influencer.email) {
         return new Response(
-          JSON.stringify({
-            error: `Failed to create user account: ${authError?.message || 'Unknown error'}`
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: 'Cannot approve: email address is missing' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
 
-      userId = authData.user.id
-      requiresPasswordEmail = true
-    }
+      // Check if user already exists with this email
+      const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+      const existingUser = existingUsers?.users.find(u => u.email === influencer.email)
 
-    // Use the SECURITY DEFINER function to approve the influencer
-    // This bypasses the field protection trigger
-    const { error: approveError } = await supabaseAdmin.rpc(
-      'approve_influencer_application',
-      {
-        p_influencer_id: influencerId,
-        p_user_id: userId
+      if (existingUser) {
+        // User already exists - just link them to the influencer record
+        userId = existingUser.id
+
+        // Update user metadata to include influencer role
+        await supabaseAdmin.auth.admin.updateUserById(userId, {
+          user_metadata: {
+            ...existingUser.user_metadata,
+            role: 'influencer'
+          }
+        })
+
+        requiresPasswordEmail = false
+      } else {
+        // Create new user account
+        tempPassword = generateRandomPassword(12)
+
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: influencer.email,
+          password: tempPassword,
+          email_confirm: true,
+          user_metadata: {
+            full_name: influencer.display_name,
+            role: 'influencer'
+          }
+        })
+
+        if (authError || !authData.user) {
+          console.error('Error creating user account:', authError)
+          return new Response(
+            JSON.stringify({
+              error: `Failed to create user account: ${authError?.message || 'Unknown error'}`
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
+        userId = authData.user.id
+        requiresPasswordEmail = true
       }
-    )
 
-    if (approveError) {
-      console.error('Error approving influencer:', approveError)
-      throw approveError
-    }
+      // Use the SECURITY DEFINER function to approve the influencer
+      // This bypasses the field protection trigger
+      const { error: approveError } = await supabaseAdmin.rpc(
+        'approve_influencer_application',
+        {
+          p_influencer_id: influencerId,
+          p_user_id: userId
+        }
+      )
 
-    // Update profile role to 'influencer'
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .update({ role: 'influencer' })
-      .eq('id', userId)
+      if (approveError) {
+        console.error('Error approving influencer:', approveError)
+        throw approveError
+      }
 
-    if (profileError) {
-      console.error('Error updating profile:', profileError)
-      throw profileError
+      // Update profile role to 'influencer'
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({ role: 'influencer' })
+        .eq('id', userId)
+
+      if (profileError) {
+        console.error('Error updating profile:', profileError)
+        throw profileError
+      }
     }
 
     // Send appropriate approval email
+    console.log('=== EMAIL SENDING SECTION REACHED ===')
+    console.log('Influencer email:', influencer.email)
+    console.log('User ID:', userId)
+    console.log('Requires password email:', requiresPasswordEmail)
+
     let emailStatus = 'not_sent'
     let emailError = null
 
     try {
       const siteUrl = Deno.env.get('PUBLIC_SITE_URL')
       const supabaseUrl = Deno.env.get('SUPABASE_URL')
-      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
-      if (!siteUrl || !supabaseUrl || !serviceRoleKey) {
-        throw new Error('Missing configuration: PUBLIC_SITE_URL, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY are required')
+      // Get webhook secret from database (same as rejection emails)
+      const { data: webhookConfig, error: configError } = await supabaseAdmin
+        .from('webhook_config')
+        .select('webhook_secret, supabase_url')
+        .limit(1)
+        .single()
+
+      if (configError || !webhookConfig?.webhook_secret) {
+        console.error('Failed to get webhook config from database:', configError)
+        throw new Error('Webhook configuration not found in database')
+      }
+
+      const webhookSecret = webhookConfig.webhook_secret
+      console.log('Webhook secret loaded from database, length:', webhookSecret.length)
+
+      if (!siteUrl) {
+        throw new Error('Missing configuration: PUBLIC_SITE_URL')
       }
 
       let emailNotification: any
@@ -260,28 +276,41 @@ serve(async (req) => {
       }
 
       console.log('Sending email notification:', JSON.stringify(emailNotification))
+      console.log('Using webhook secret authentication (from database)')
+      console.log('Calling:', `${webhookConfig.supabase_url}/functions/v1/send-email`)
 
       const emailResponse = await fetch(
-        `${supabaseUrl}/functions/v1/send-notification-email`,
+        `${webhookConfig.supabase_url}/functions/v1/send-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceRoleKey}`,
+            'X-Webhook-Secret': webhookSecret,
           },
           body: JSON.stringify(emailNotification),
         }
       )
 
-      const emailResult = await emailResponse.json()
+      console.log('Email response status:', emailResponse.status)
+      const emailResponseText = await emailResponse.text()
+      console.log('Email response body:', emailResponseText)
+
+      let emailResult
+      try {
+        emailResult = JSON.parse(emailResponseText)
+      } catch (e) {
+        console.error('Failed to parse email response as JSON:', emailResponseText)
+        emailResult = { error: emailResponseText }
+      }
 
       if (emailResponse.ok) {
         emailStatus = 'sent'
         console.log('Email sent successfully:', emailResult)
       } else {
         emailStatus = 'failed'
-        emailError = emailResult.error || 'Unknown error'
-        console.error('Email sending failed:', emailResult)
+        emailError = emailResult.error || emailResponseText || 'Unknown error'
+        console.error('Email sending failed. Status:', emailResponse.status, 'Error:', emailError)
+        console.error('Full response:', emailResult)
       }
     } catch (err) {
       emailStatus = 'failed'

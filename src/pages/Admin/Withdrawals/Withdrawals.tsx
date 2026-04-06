@@ -27,7 +27,6 @@ import { useSidebarCounts } from '@/contexts/SidebarCountsContext'
 import { toast } from 'sonner'
 import { RejectWithdrawalModal } from '@/components/RejectWithdrawalModal'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
-import { emailService } from '@/services/email.service'
 
 type WithdrawalRequest = Database['public']['Tables']['withdrawal_requests']['Row']
 
@@ -214,23 +213,7 @@ export default function Withdrawals() {
 
       toast.success('Withdrawal processed successfully')
 
-      // Send withdrawal approved email (non-blocking)
-      if (withdrawal.user_email && withdrawal.user_name) {
-        emailService.sendWithdrawalApprovedEmail(
-          withdrawal.user_email,
-          withdrawal.user_name,
-          {
-            amount: (withdrawal.amount_pence / 100).toFixed(2),
-            approvedDate: new Date().toLocaleDateString('en-GB'),
-            paymentMethod: 'Bank Transfer',
-            expectedArrival: '3-5 business days',
-            statusUrl: `${window.location.origin}/account/withdrawals`
-          }
-        ).catch(err => {
-          console.error('Failed to send withdrawal approved email:', err)
-          // Don't throw - email failure shouldn't affect the operation
-        })
-      }
+      // Email sent automatically by database trigger
 
       await refresh()
       await refreshCounts()
@@ -271,22 +254,7 @@ export default function Withdrawals() {
 
       toast.success('Withdrawal request rejected')
 
-      // Send withdrawal rejected email (non-blocking)
-      if (rejectingWithdrawal.user_email && rejectingWithdrawal.user_name) {
-        emailService.sendWithdrawalRejectedEmail(
-          rejectingWithdrawal.user_email,
-          rejectingWithdrawal.user_name,
-          {
-            amount: (rejectingWithdrawal.amount_pence / 100).toFixed(2),
-            rejectedDate: new Date().toLocaleDateString('en-GB'),
-            rejectionReason: reason,
-            statusUrl: `${window.location.origin}/account/withdrawals`
-          }
-        ).catch(err => {
-          console.error('Failed to send withdrawal rejected email:', err)
-          // Don't throw - email failure shouldn't affect the operation
-        })
-      }
+      // Email sent automatically by database trigger
 
       setShowRejectModal(false)
       setRejectingWithdrawal(null)

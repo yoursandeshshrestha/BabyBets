@@ -2,10 +2,11 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-// SECURITY: Use environment-aware CORS
-const corsHeaders = getCorsHeaders()
-
 serve(async (req) => {
+  // Get CORS headers based on request origin
+  const requestOrigin = req.headers.get('Origin') || undefined
+  const corsHeaders = getCorsHeaders(false, requestOrigin)
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -72,6 +73,13 @@ serve(async (req) => {
         },
       }
     )
+
+    // Get webhook config from database for email sending
+    const { data: webhookConfig } = await supabaseAdmin
+      .from('webhook_config')
+      .select('webhook_secret, supabase_url')
+      .limit(1)
+      .single()
 
     // Get order details (includes user_id)
     const { data: order, error: orderError } = await supabaseAdmin
@@ -207,70 +215,97 @@ serve(async (req) => {
 
     }
 
-    // Send order confirmation email (non-blocking)
+    // Send order confirmation email (non-blocking, fire and forget)
+    console.log('[Complete Order] Starting email send process for order:', orderId)
     supabaseAdmin
       .from('profiles')
       .select('email, first_name, last_name')
       .eq('id', order.user_id)
       .single()
-      .then(({ data: profile }) => {
-        if (profile && profile.email) {
-          // Calculate total tickets
-          const totalTickets = (orderItems || []).reduce((sum: number, item: { ticket_count: number }) => sum + item.ticket_count, 0)
+      .then(({ data: profile, error: profileError }) => {
+        if (profileError) {
+          console.error('[Complete Order] Error fetching profile:', profileError)
+          return
+        }
 
-          // Get order with created_at timestamp
-          supabaseAdmin
-            .from('orders')
-            .select('created_at, total_pence')
-            .eq('id', orderId)
-            .single()
-            .then(({ data: orderWithDate }) => {
-              const recipientName = profile.first_name || profile.email.split('@')[0]
+        if (!profile || !profile.email) {
+          console.error('[Complete Order] No profile or email found for user:', order.user_id)
+          return
+        }
 
-              // Call send-notification-email edge function (fire and forget)
-              const emailPayload = {
-                type: 'order_confirmation',
-                recipientEmail: profile.email,
-                recipientName,
-                data: {
-                  orderNumber: orderId.slice(0, 8).toUpperCase(),
-                  orderDate: orderWithDate?.created_at
-                    ? new Date(orderWithDate.created_at).toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                      })
-                    : new Date().toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                      }),
-                  totalTickets,
-                  orderTotal: ((orderWithDate?.total_pence || 0) / 100).toFixed(2),
-                  ticketsUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
-                }
+        console.log('[Complete Order] Profile found, sending email to:', profile.email)
+
+        // Calculate total tickets
+        const totalTickets = (orderItems || []).reduce((sum: number, item: { ticket_count: number }) => sum + item.ticket_count, 0)
+
+        // Get order with created_at timestamp
+        supabaseAdmin
+          .from('orders')
+          .select('created_at, total_pence')
+          .eq('id', orderId)
+          .single()
+          .then(({ data: orderWithDate, error: orderError }) => {
+            if (orderError) {
+              console.error('[Complete Order] Error fetching order details:', orderError)
+              return
+            }
+
+            const recipientName = profile.first_name || profile.email.split('@')[0]
+
+            // Call send-email edge function
+            const emailPayload = {
+              type: 'order_confirmation',
+              recipientEmail: profile.email,
+              recipientName,
+              data: {
+                orderNumber: orderId.slice(0, 8).toUpperCase(),
+                orderDate: orderWithDate?.created_at
+                  ? new Date(orderWithDate.created_at).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })
+                  : new Date().toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    }),
+                totalTickets,
+                orderTotal: ((orderWithDate?.total_pence || 0) / 100).toFixed(2),
+                ticketsUrl: `${Deno.env.get('PUBLIC_SITE_URL') || 'https://babybets.co.uk'}/account?tab=tickets`
               }
+            }
 
+            console.log('[Complete Order] Calling send-email with payload:', JSON.stringify(emailPayload))
+
+            if (webhookConfig?.webhook_secret) {
               fetch(
-                `${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification-email`,
+                `${webhookConfig.supabase_url}/functions/v1/send-email`,
                 {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
+                    'X-Webhook-Secret': webhookConfig.webhook_secret,
                   },
                   body: JSON.stringify(emailPayload),
                 }
-              ).then(() => {
-                console.log('[Complete Order] Order confirmation email queued')
+              ).then(async (response) => {
+                if (response.ok) {
+                  console.log('[Complete Order] ✅ Order confirmation email queued successfully')
+                } else {
+                  const errorText = await response.text()
+                  console.error('[Complete Order] ❌ Email function returned error:', response.status, errorText)
+                }
               }).catch((err: Error) => {
-                console.error('[Complete Order] Error queueing order confirmation email:', err)
+                console.error('[Complete Order] ❌ Error calling email function:', err.message, err.stack)
               })
-            })
-        }
+            } else {
+              console.warn('[Complete Order] Webhook config not available - email not sent')
+            }
+          })
       })
       .catch((err: Error) => {
-        console.error('[Complete Order] Error fetching profile for email:', err)
+        console.error('[Complete Order] Error in email flow:', err.message, err.stack)
       })
 
     return new Response(

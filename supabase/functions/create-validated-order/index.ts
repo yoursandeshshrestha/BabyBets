@@ -2,9 +2,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-// SECURITY: Use environment-aware CORS (localhost in dev, production domain in prod)
-const corsHeaders = getCorsHeaders()
-
 interface OrderItem {
   competition_id: string
   quantity: number
@@ -29,6 +26,10 @@ interface ValidatedOrderResponse {
 }
 
 serve(async (req) => {
+  // Get CORS headers based on request origin
+  const requestOrigin = req.headers.get('Origin') || undefined
+  const corsHeaders = getCorsHeaders(false, requestOrigin)
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })

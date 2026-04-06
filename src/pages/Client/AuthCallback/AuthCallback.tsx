@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { authService } from '@/services/auth.service'
-import { emailService } from '@/services/email.service'
 import { useAuthStore } from '@/store/authStore'
 
 export default function AuthCallback() {
@@ -34,18 +33,7 @@ export default function AuthCallback() {
         // Refresh authentication status
         await authService.refreshAuth()
 
-        // Send welcome email for new OAuth users (non-blocking)
-        if (isNewUser && supabaseUser?.email) {
-          const userName = supabaseUser.user_metadata?.full_name ||
-                          supabaseUser.user_metadata?.name ||
-                          supabaseUser.email.split('@')[0]
-
-          emailService.sendWelcomeEmail(supabaseUser.email, userName, {
-            competitionsUrl: `${window.location.origin}/competitions`
-          }).catch(err => {
-            console.error('Failed to send welcome email:', err)
-          })
-        }
+        // Welcome email will be sent automatically by database trigger on profiles INSERT
 
         // Get the updated user from the store
         const { user } = useAuthStore.getState()

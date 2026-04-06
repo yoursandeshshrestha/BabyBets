@@ -6,11 +6,10 @@
 -- ============================================
 
 -- Add max_tickets_per_user column to competitions
+-- Add max_tickets_per_user column to competitions
+-- Maximum number of tickets a single user can purchase for this competition (NULL = unlimited)
 ALTER TABLE public.competitions
 ADD COLUMN IF NOT EXISTS max_tickets_per_user INTEGER;
-
-COMMENT ON COLUMN public.competitions.max_tickets_per_user IS
-  'Maximum number of tickets a single user can purchase for this competition (NULL = unlimited)';
 
 -- Update claim_tickets_atomic to enforce per-user limits
 CREATE OR REPLACE FUNCTION public.claim_tickets_atomic(
@@ -114,6 +113,3 @@ BEGIN
   RETURN;
 END;
 $$;
-
-COMMENT ON FUNCTION public.claim_tickets_atomic IS
-  'Atomically claims tickets with race condition protection, overselling prevention, and per-user limit enforcement';

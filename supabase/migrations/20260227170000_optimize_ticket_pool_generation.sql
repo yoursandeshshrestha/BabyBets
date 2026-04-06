@@ -266,8 +266,5 @@ EXCEPTION
 END;
 $$;
 
-COMMENT ON FUNCTION public.generate_ticket_pool(UUID) IS
-  'Generates pre-allocated ticket pool with random 7-character alphanumeric codes (0-9, A-Z, a-z) and random prize distribution (admin only). Optimized for large ticket pools with batch processing and 5-minute timeout.';
-
 -- Grant execute permission to authenticated users (function checks admin role internally)
 GRANT EXECUTE ON FUNCTION public.generate_ticket_pool(UUID) TO authenticated;

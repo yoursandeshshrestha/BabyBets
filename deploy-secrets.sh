@@ -31,6 +31,7 @@ if [ ! -f ".env.supabase" ]; then
     echo "  - SUPABASE_ANON_KEY"
     echo "  - SUPABASE_SERVICE_ROLE_KEY"
     echo "  - PUBLIC_SITE_URL"
+    echo "  - WEBHOOK_SECRET (generated during database migration)"
     echo ""
     echo "See .env.example for template"
     exit 1
@@ -54,6 +55,7 @@ REQUIRED_SECRETS=(
     "SUPABASE_ANON_KEY"
     "SUPABASE_SERVICE_ROLE_KEY"
     "PUBLIC_SITE_URL"
+    "WEBHOOK_SECRET"
 )
 
 MISSING_SECRETS=()
@@ -117,6 +119,12 @@ supabase secrets set PUBLIC_SITE_URL="$PUBLIC_SITE_URL"
 echo "✅ Public site URL deployed"
 echo ""
 
+# Deploy Webhook Secret (for database triggers)
+echo "🔐 Deploying Webhook Secret (for database triggers)..."
+supabase secrets set WEBHOOK_SECRET="$WEBHOOK_SECRET"
+echo "✅ Webhook secret deployed"
+echo ""
+
 echo "🎉 All secrets deployed successfully!"
 echo ""
 echo "📋 Deployed Secrets:"
@@ -128,6 +136,7 @@ echo "   ✓ G2PAY_SIGNATURE_KEY - G2Pay webhook signature verification"
 echo "   ✓ G2PAY_DIRECT_API_URL - G2Pay direct API endpoint"
 echo "   ✓ G2PAY_HOSTED_URL - G2Pay hosted endpoint (for Apple Pay merchant validation)"
 echo "   ✓ PUBLIC_SITE_URL - Public website URL (for emails and redirects)"
+echo "   ✓ WEBHOOK_SECRET - Database trigger authentication (for automated emails)"
 echo ""
 echo "💳 Payment Integration Notes:"
 echo "   • Using G2Pay Direct API Integration"

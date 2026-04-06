@@ -165,7 +165,9 @@ async function getEmailTemplate(notification: EmailNotification, supabaseClient:
 
 /**
  * Main handler - Non-blocking email notification service
- * SECURITY: This is an internal-only function that requires service role key authentication
+ * SECURITY: This is an internal-only function that requires authentication via:
+ * - Service role key (Authorization header) for direct API calls
+ * - Webhook secret (X-Webhook-Secret header) for database triggers
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -173,30 +175,66 @@ serve(async (req) => {
   }
 
   try {
-    // SECURITY: Verify service role key to prevent unauthorized email sending
+    // SECURITY: Verify authentication (service role key OR webhook secret)
     const authHeader = req.headers.get('Authorization')
+    const webhookSecret = req.headers.get('X-Webhook-Secret')
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const expectedWebhookSecret = Deno.env.get('WEBHOOK_SECRET')
 
-    if (!authHeader || !serviceRoleKey) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized - Missing authentication' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    console.log('[send-email] Authentication attempt:', {
+      hasAuthHeader: !!authHeader,
+      hasWebhookSecret: !!webhookSecret,
+      hasServiceRoleKey: !!serviceRoleKey,
+      hasExpectedWebhookSecret: !!expectedWebhookSecret,
+      webhookSecretLength: webhookSecret?.length || 0,
+      expectedWebhookSecretLength: expectedWebhookSecret?.length || 0
+    })
+
+    // Check if either authentication method is valid
+    let isAuthenticated = false
+    let authMethod = 'none'
+
+    // Method 1: Service role key (for direct API calls)
+    if (authHeader && serviceRoleKey) {
+      const expectedAuth = `Bearer ${serviceRoleKey}`
+      if (authHeader === expectedAuth) {
+        isAuthenticated = true
+        authMethod = 'service_role_key'
+        console.log('[send-email] Authenticated via service role key')
+      } else {
+        console.log('[send-email] Service role key mismatch')
+      }
     }
 
-    // Verify the Authorization header matches the service role key
-    const expectedAuth = `Bearer ${serviceRoleKey}`
-    if (authHeader !== expectedAuth) {
-      console.error('[send-notification-email] Unauthorized access attempt')
+    // Method 2: Webhook secret (for database triggers)
+    if (webhookSecret && expectedWebhookSecret) {
+      console.log('[send-email] Comparing webhook secrets:', {
+        receivedLength: webhookSecret.length,
+        expectedLength: expectedWebhookSecret.length,
+        match: webhookSecret === expectedWebhookSecret
+      })
+      if (webhookSecret === expectedWebhookSecret) {
+        isAuthenticated = true
+        authMethod = 'webhook_secret'
+        console.log('[send-email] Authenticated via webhook secret')
+      } else {
+        console.log('[send-email] Webhook secret mismatch')
+      }
+    }
+
+    if (!isAuthenticated) {
+      console.error('[send-email] Unauthorized access attempt. Auth method attempted:', authMethod)
       return new Response(
         JSON.stringify({ error: 'Unauthorized - Invalid credentials' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
+    console.log('[send-email] Request authenticated via:', authMethod)
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      serviceRoleKey,
+      serviceRoleKey ?? '',
       {
         auth: {
           autoRefreshToken: false,
@@ -328,7 +366,7 @@ serve(async (req) => {
       )
     }
   } catch (error) {
-    console.error('Error in send-notification-email:', error)
+    console.error('Error in send-email:', error)
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

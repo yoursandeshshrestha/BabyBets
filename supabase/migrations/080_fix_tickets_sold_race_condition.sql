@@ -1,11 +1,4 @@
--- ============================================
--- FIX TICKETS_SOLD RACE CONDITION
--- Description: Fix race condition in tickets_sold counter by using atomic increment
--- SECURITY FIX: Prevents overselling due to concurrent ticket purchases
--- Date: 2026-03-25
--- ============================================
-
--- Update claim_tickets_atomic function to atomically increment tickets_sold
+-- Fix tickets_sold race condition with atomic increment
 CREATE OR REPLACE FUNCTION public.claim_tickets_atomic(
   p_competition_id UUID,
   p_user_id UUID,
@@ -88,6 +81,3 @@ BEGIN
   RETURN;
 END;
 $$;
-
-COMMENT ON FUNCTION public.claim_tickets_atomic IS
-  'Atomically claims tickets with race condition protection and overselling prevention. Includes row locking and atomic counter increment.';

@@ -134,15 +134,3 @@ USING (
   bucket_id = 'public-assets' AND
   public.is_admin()
 );
-
-COMMENT ON POLICY "Admin can upload competition images" ON storage.objects IS
-  'Security: Only admins can upload competition images';
-
-COMMENT ON POLICY "Admin can upload prize images" ON storage.objects IS
-  'Security: Only admins can upload prize images';
-
-COMMENT ON POLICY "Admin can upload winner photos" ON storage.objects IS
-  'Security: Only admins can upload winner photos';
-
-COMMENT ON POLICY "Admin can upload public assets" ON storage.objects IS
-  'Security: Only admins can upload public assets';

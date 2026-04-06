@@ -11,8 +11,9 @@
 /**
  * Get CORS headers with dynamic origin based on environment
  * @param allowWildcard - Set to true for webhook/external endpoints only
+ * @param requestOrigin - The Origin header from the incoming request
  */
-export function getCorsHeaders(allowWildcard: boolean = false): Record<string, string> {
+export function getCorsHeaders(allowWildcard: boolean = false, requestOrigin?: string): Record<string, string> {
   if (allowWildcard) {
     // Only for external service webhooks (G2Pay, Apple Pay validation, etc.)
     return {
@@ -31,8 +32,14 @@ export function getCorsHeaders(allowWildcard: boolean = false): Record<string, s
     'http://localhost:5173', // Vite dev server
   ]
 
+  // CORS spec: Access-Control-Allow-Origin must be a single origin, not a list
+  // If request origin is in allowed list, return it; otherwise return first allowed origin
+  const origin = requestOrigin && allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : allowedOrigins[0]
+
   return {
-    'Access-Control-Allow-Origin': allowedOrigins.join(', '),
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Allow-Credentials': 'true',
@@ -59,10 +66,11 @@ export function getSecurityHeaders(): Record<string, string> {
 /**
  * Get complete response headers (CORS + Security)
  * @param allowWildcard - Set to true for webhook/external endpoints only
+ * @param requestOrigin - The Origin header from the incoming request
  */
-export function getResponseHeaders(allowWildcard: boolean = false): Record<string, string> {
+export function getResponseHeaders(allowWildcard: boolean = false, requestOrigin?: string): Record<string, string> {
   return {
-    ...getCorsHeaders(allowWildcard),
+    ...getCorsHeaders(allowWildcard, requestOrigin),
     ...getSecurityHeaders(),
     'Content-Type': 'application/json',
   }

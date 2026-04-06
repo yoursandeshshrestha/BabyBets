@@ -24,8 +24,8 @@ fi
 echo "📦 Function 1/13: create-validated-order (🔒 SECURITY FIX)"
 echo "   - Server-side order validation with price verification"
 echo "   - Prevents price manipulation, discount fraud, wallet credit abuse"
-echo "   - ✅ JWT verification enabled (user authentication required)"
-supabase functions deploy create-validated-order
+echo "   - 🔓 No JWT verification (manual verification in code)"
+supabase functions deploy create-validated-order --no-verify-jwt
 echo "✅ Deployed successfully"
 echo ""
 
@@ -81,11 +81,12 @@ supabase functions deploy process-google-pay-payment --no-verify-jwt
 echo "✅ Deployed successfully"
 echo ""
 
-echo "📦 Function 9/13: send-notification-email (Email Notification System)"
+echo "📦 Function 9/13: send-email (Email Notification System)"
 echo "   - Sends all transactional emails via Mailgun"
 echo "   - 14 email templates with BabyBets branding"
-echo "   - 🔓 No JWT verification (internal service, uses service role key)"
-supabase functions deploy send-notification-email --no-verify-jwt
+echo "   - Triggered by database events (profiles, withdrawals, etc.)"
+echo "   - 🔓 No JWT verification (uses webhook secret authentication)"
+supabase functions deploy send-email --no-verify-jwt
 echo "✅ Deployed successfully"
 echo ""
 
@@ -121,7 +122,7 @@ echo ""
 echo "🎉 All 13 functions deployed successfully!"
 echo ""
 echo "📋 Deployed Functions:"
-echo "   ✓ create-validated-order - 🔒 Server-side price validation (✅ JWT Required)"
+echo "   ✓ create-validated-order - 🔒 Server-side price validation (🔓 No JWT, manual verification)"
 echo "   ✓ create-g2pay-hosted-session - Hosted payment session (🔓 No JWT)"
 echo "   ✓ complete-g2pay-order - Order completion (🔓 No JWT)"
 echo "   ✓ continue-3ds - 3D Secure authentication (🔓 No JWT)"
@@ -129,7 +130,7 @@ echo "   ✓ g2pay-webhook - Payment confirmations (🔓 No JWT)"
 echo "   ✓ validate-apple-pay-merchant - Apple Pay merchant validation (🔓 No JWT)"
 echo "   ✓ process-apple-pay-payment - Apple Pay processing (🔓 No JWT)"
 echo "   ✓ process-google-pay-payment - Google Pay processing (🔓 No JWT)"
-echo "   ✓ send-notification-email - Email notifications (🔓 No JWT)"
+echo "   ✓ send-email - Email notifications (🔓 No JWT, webhook secret auth)"
 echo "   ✓ approve-influencer-application - Influencer management (🔓 No JWT)"
 echo "   ✓ auto-execute-draws - Automated draw execution (🔓 No JWT)"
 echo "   ✓ claim-wheel-prize - 🔒 Wheel prize claims with validation (🔓 No JWT)"
@@ -141,7 +142,7 @@ echo "   • 🔒 SECURITY FIX: claim-wheel-prize validates prize amounts (preve
 echo "   • Payment functions use service role key for authentication"
 echo "   • G2Pay webhook uses signature verification for security"
 echo "   • Apple Pay merchant validation handled via validate-apple-pay-merchant"
-echo "   • Email service is internal-only (called from backend with service role key)"
+   • Email service uses webhook secret (database triggers + edge function)"
 echo ""
 echo "🛡️ Security Fixes Deployed (2026-04-02):"
 echo "   ✅ Order price manipulation - FIXED (server validates prices)"

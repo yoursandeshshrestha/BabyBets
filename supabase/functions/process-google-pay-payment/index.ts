@@ -2,9 +2,6 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-// SECURITY: Use environment-aware CORS
-const corsHeaders = getCorsHeaders()
-
 async function createSignature(data: Record<string, string | number>, signatureKey: string): Promise<string> {
   const processedData: Record<string, string> = {}
   const keys = Object.keys(data).sort()
@@ -28,6 +25,10 @@ async function createSignature(data: Record<string, string | number>, signatureK
 }
 
 serve(async (req) => {
+  // Get CORS headers based on request origin
+  const requestOrigin = req.headers.get('Origin') || undefined
+  const corsHeaders = getCorsHeaders(false, requestOrigin)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }

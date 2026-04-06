@@ -72,6 +72,3 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION public.protect_influencer_critical_fields IS
-  'Prevents non-admin users from modifying critical system-managed fields, but allows SECURITY DEFINER functions to update stats (both incremental total_sales_pence updates and batch updates with commission_tier)';

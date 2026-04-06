@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/select'
 import { useSidebarCounts } from '@/contexts/SidebarCountsContext'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
-import { emailService } from '@/services/email.service'
 
 interface Influencer extends Record<string, unknown> {
   id: string
@@ -97,85 +96,39 @@ export default function Influencers() {
       }
 
       if (isActive) {
-        // CASE 1: Approving an application without user account (user_id is null)
-        if (!influencer.user_id) {
-          // Verify we have an email for this application
-          if (!influencer.email) {
-            throw new Error('Cannot approve application: email address is missing')
-          }
+        // Call the approve-influencer-application edge function for ALL approvals
+        // (handles both new applications and reactivations, and sends email)
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+        const response = await fetch(`${supabaseUrl}/functions/v1/approve-influencer-application`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+          body: JSON.stringify({ influencerId: id })
+        })
 
-          // Call the approve-influencer-application edge function
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-          const response = await fetch(`${supabaseUrl}/functions/v1/approve-influencer-application`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-            },
-            body: JSON.stringify({ influencerId: id })
-          })
-
-          if (!response.ok) {
-            const errorData = await response.json()
-            throw new Error(errorData.error || 'Failed to approve application')
-          }
-
-          const result = await response.json()
-          console.log('Approval result:', result)
-
-          // Check email status and show appropriate message
-          let alertMessage = result.message || `Application approved! User account created.`
-
-          if (result.emailStatus === 'failed') {
-            alertMessage += `\n\n⚠️ Warning: Email notification failed to send.\nError: ${result.emailError || 'Unknown error'}\n\nPlease contact ${influencer.email} manually.`
-            console.error('Email sending failed:', result.emailError)
-          } else if (result.emailStatus === 'sent') {
-            alertMessage += `\n✓ Login credentials sent to ${influencer.email}`
-          } else {
-            alertMessage += `\n\n⚠️ Warning: Email status unknown (${result.emailStatus})`
-          }
-
-          alert(alertMessage)
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to approve application')
         }
-        // CASE 2: Approving/reactivating existing influencer with user account
-        else {
-          // Update influencer is_active status
-          const { error: influencerError } = await supabase
-            .from('influencers')
-            .update({ is_active: true })
-            .eq('id', id)
 
-          if (influencerError) throw influencerError
+        const result = await response.json()
+        console.log('Approval result:', result)
 
-          // Update user's role to 'influencer' in profiles
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({ role: 'influencer' })
-            .eq('id', influencer.user_id)
+        // Check email status and show appropriate message
+        let alertMessage = result.message || `Application approved!`
 
-          if (profileError) throw profileError
-
-          // Send regular influencer approved email (non-blocking)
-          if (influencer.profiles?.email) {
-            const recipientName = influencer.profiles.first_name
-              ? `${influencer.profiles.first_name} ${influencer.profiles.last_name || ''}`.trim()
-              : influencer.display_name || 'there'
-
-            emailService.sendInfluencerApprovedEmail(
-              influencer.profiles.email,
-              recipientName,
-              {
-                displayName: influencer.display_name,
-                slug: influencer.slug,
-                dashboardUrl: `${window.location.origin}/influencer/dashboard`,
-                commissionTier: influencer.commission_tier || 1
-              }
-            ).catch(err => {
-              console.error('Failed to send influencer approved email:', err)
-              // Don't throw - email failure shouldn't affect the operation
-            })
-          }
+        if (result.emailStatus === 'failed') {
+          alertMessage += `\n\n⚠️ Warning: Email notification failed to send.\nError: ${result.emailError || 'Unknown error'}\n\nPlease contact ${influencer.email} manually.`
+          console.error('Email sending failed:', result.emailError)
+        } else if (result.emailStatus === 'sent') {
+          alertMessage += `\n✓ Approval email sent to ${influencer.email}`
+        } else {
+          alertMessage += `\n\n⚠️ Warning: Email status unknown (${result.emailStatus})`
         }
+
+        alert(alertMessage)
       } else {
         // Deactivating an influencer
         if (!influencer.user_id) {
@@ -229,26 +182,7 @@ export default function Influencers() {
 
       if (error) throw error
 
-      // Send influencer rejected email (non-blocking)
-      // Use influencer.email for applications without user accounts, otherwise use profiles.email
-      const recipientEmail = influencer?.email || influencer?.profiles?.email
-      if (recipientEmail) {
-        const recipientName = influencer.profiles?.first_name
-          ? `${influencer.profiles.first_name} ${influencer.profiles.last_name || ''}`.trim()
-          : influencer.display_name || 'there'
-
-        emailService.sendInfluencerRejectedEmail(
-          recipientEmail,
-          recipientName,
-          {
-            displayName: influencer.display_name,
-            rejectionReason: 'We appreciate your interest, but we are unable to approve your application at this time. Please feel free to reapply in the future once you meet our partner criteria.'
-          }
-        ).catch(err => {
-          console.error('Failed to send influencer rejected email:', err)
-          // Don't throw - email failure shouldn't affect the operation
-        })
-      }
+      // Email sent automatically by database trigger on influencer DELETE
 
       // Reload data
       await refresh()

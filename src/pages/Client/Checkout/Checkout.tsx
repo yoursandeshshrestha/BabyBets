@@ -413,30 +413,8 @@ function Checkout() {
 
       // If fully paid with wallet credit
       if (finalTotalPence === 0) {
-        const { error: completeError } = await supabase.rpc('complete_order_with_wallet', {
-          p_order_id: order.id,
-          p_user_id: session.user.id,
-        })
-
-        if (completeError) {
-          console.error('❌ Error completing wallet order:', completeError)
-          throw new Error(completeError.message || 'Failed to process wallet payment')
-        }
-
-        import('@/services/email.service').then((emailServiceModule) => {
-          const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0)
-          emailServiceModule.emailService.sendOrderConfirmationEmail(
-            session.user.email || '',
-            session.user.email?.split('@')[0] || 'Customer',
-            {
-              orderNumber: order.id.slice(0, 8).toUpperCase(),
-              orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-              totalTickets,
-              orderTotal: (validatedOrder.subtotal_pence / 100).toFixed(2),
-              ticketsUrl: `${window.location.origin}/account?tab=tickets`
-            }
-          ).catch((err) => { console.error('Failed to send order confirmation email:', err) })
-        })
+        // Use Edge Function to complete order (handles email sending)
+        await completeOrder(order.id)
 
         setPurchaseCompleted(true)
         clearCart()
