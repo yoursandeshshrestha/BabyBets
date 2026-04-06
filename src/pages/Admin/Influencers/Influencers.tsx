@@ -171,9 +171,6 @@ export default function Influencers() {
 
     setLoadingAction({ id, action: 'reject' })
     try {
-      // Get influencer data before deleting
-      const influencer = influencers.find(i => i.id === id)
-
       // Delete the influencer application
       const { error } = await supabase
         .from('influencers')

@@ -22,17 +22,6 @@ export default function Contact() {
     e.preventDefault()
     setIsSubmitting(true)
 
-    const html = `
-      <h2>New Contact Form Submission</h2>
-      <p><strong>Name:</strong> ${formData.name}</p>
-      <p><strong>Email:</strong> ${formData.email}</p>
-      <p><strong>Subject:</strong> ${formData.subject}</p>
-      <p><strong>Message:</strong></p>
-      <p>${formData.message.replace(/\n/g, '<br />')}</p>
-    `
-
-    const text = `New Contact Form Submission\n\nName: ${formData.name}\nEmail: ${formData.email}\nSubject: ${formData.subject}\nMessage:\n${formData.message}`
-
     try {
       const { data, error } = await supabase.functions.invoke('send-contact-form', {
         body: { name: formData.name, email: formData.email, subject: formData.subject, message: formData.message }

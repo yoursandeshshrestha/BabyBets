@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import Header from '@/components/common/Header'
 import { supabase } from '@/lib/supabase'
 import { CheckCircle, Trophy, ArrowRight } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
 
 interface OrderDetails {
   id: string
@@ -24,7 +23,6 @@ function PaymentSuccess() {
   const orderId = searchParams.get('orderId')
   const [order, setOrder] = useState<OrderDetails | null>(null)
   const [loading, setLoading] = useState(true)
-  const { user } = useAuthStore()
 
   useEffect(() => {
     if (orderId) {

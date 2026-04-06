@@ -343,18 +343,7 @@ export default function Fulfillments() {
 
       if (error) throw error
 
-      // Send prize fulfillment update email (non-blocking) for dispatched and delivered
-      if (newStatus === 'dispatched' || newStatus === 'delivered') {
-        const fulfillment = fulfillments.find(f => f.id === id)
-        if (fulfillment?.user_email && fulfillment.user_name && fulfillment.prize_name) {
-          const statusMessages: Record<string, string> = {
-            dispatched: 'shipped',
-            delivered: 'delivered'
-          }
-
-          // Email sent automatically by database trigger on prize_fulfillments UPDATE
-        }
-      }
+      // Email sent automatically by database trigger on prize_fulfillments UPDATE for dispatched and delivered
 
       await refresh()
       await refreshCounts()

@@ -15,20 +15,13 @@ export default function AuthCallback() {
     const handleCallback = async () => {
       try {
         // Handle the OAuth callback
-        const { data: sessionData, error } = await supabase.auth.getSession()
+        const { error } = await supabase.auth.getSession()
 
         if (error) {
           console.error('Auth callback error:', error)
           navigate('/login', { replace: true })
           return
         }
-
-        const session = sessionData.session
-        const supabaseUser = session?.user
-
-        // Check if this is a new user (account created in last 10 seconds)
-        const isNewUser = supabaseUser && supabaseUser.created_at &&
-          (new Date().getTime() - new Date(supabaseUser.created_at).getTime()) < 10000
 
         // Refresh authentication status
         await authService.refreshAuth()
