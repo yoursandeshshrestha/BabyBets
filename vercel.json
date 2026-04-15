@@ -1,11 +1,22 @@
 {
+  "headers": [
+    {
+      "source": "/.well-known/(.*)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/plain"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
-      "source": "/\\.well-known/:path*",
-      "destination": "/.well-known/:path*"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!.well-known).*)",
       "destination": "/index.html"
     }
   ]
