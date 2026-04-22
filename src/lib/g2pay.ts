@@ -216,13 +216,12 @@ export const completeOrder = async (orderId: string): Promise<{ success: boolean
  */
 export const validateAppleMerchant = async (
   validationURL: string,
-  displayName: string,
-  domainName: string
+  displayName: string
 ): Promise<{ merchantSession: object }> => {
   const supabaseWithAuth = await getAuthenticatedClient()
 
   const { data, error } = await supabaseWithAuth.functions.invoke('validate-apple-pay-merchant', {
-    body: { validationURL, displayName, domainName },
+    body: { validationURL, displayName },
   })
 
   if (error) {
@@ -231,7 +230,7 @@ export const validateAppleMerchant = async (
   }
 
   if (!data?.success || !data?.merchantSession) {
-    throw new Error('Merchant validation failed')
+    throw new Error(data?.error || 'Merchant validation failed')
   }
 
   return data

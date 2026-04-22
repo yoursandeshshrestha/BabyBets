@@ -46,7 +46,10 @@ serve(async (req) => {
     // Get environment variables
     const G2PAY_MERCHANT_ID = Deno.env.get('G2PAY_MERCHANT_ID')
     const G2PAY_SIGNATURE_KEY = Deno.env.get('G2PAY_SIGNATURE_KEY')
-    const G2PAY_HOSTED_URL = Deno.env.get('G2PAY_HOSTED_URL') || 'https://checkout.g2pay.co.uk/postbridge/g2paymodal'
+    // Apple Pay merchant validation runs on the /hosted/ endpoint, NOT the modal postbridge
+    const G2PAY_APPLEPAY_VALIDATE_URL =
+      Deno.env.get('G2PAY_APPLEPAY_VALIDATE_URL') || 'https://payments.g2pay.co.uk/hosted/'
+    const PUBLIC_SITE_URL = Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
 
     if (!G2PAY_MERCHANT_ID || !G2PAY_SIGNATURE_KEY) {
       throw new Error('G2Pay configuration missing')
@@ -90,10 +93,10 @@ serve(async (req) => {
       )
     }
 
-    // Get request body
-    const { validationURL, displayName, domainName } = await req.json()
+    // Get request body — ignore client-sent domainName, pin it server-side
+    const { validationURL, displayName } = await req.json()
 
-    if (!validationURL || !displayName || !domainName) {
+    if (!validationURL || !displayName) {
       return new Response(
         JSON.stringify({ error: 'Missing required parameters' }),
         {
@@ -102,6 +105,8 @@ serve(async (req) => {
         }
       )
     }
+
+    const domainName = new URL(PUBLIC_SITE_URL).hostname
 
     console.log('[Apple Pay Validation] Validating merchant:', {
       validationURL,
@@ -129,8 +134,8 @@ serve(async (req) => {
 
     console.log('[Apple Pay Validation] Sending request to G2Pay')
 
-    // Make request to G2Pay Hosted Integration URL
-    const g2payResponse = await fetch(G2PAY_HOSTED_URL, {
+    // Make request to G2Pay /hosted/ endpoint for Apple Pay merchant validation
+    const g2payResponse = await fetch(G2PAY_APPLEPAY_VALIDATE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -143,8 +148,48 @@ serve(async (req) => {
       throw new Error(`G2Pay request failed: ${g2payResponse.status}`)
     }
 
-    // G2Pay returns the Apple Pay merchant session as JSON
-    const merchantSession = await g2payResponse.json()
+    // G2Pay returns form-encoded data (not JSON). Parse accordingly.
+    const responseText = await g2payResponse.text()
+    const data: Record<string, string> = {}
+    if (responseText.includes('=') && !responseText.trim().startsWith('{')) {
+      new URLSearchParams(responseText).forEach((value, key) => {
+        data[key] = value
+      })
+    } else {
+      try {
+        Object.assign(data, JSON.parse(responseText))
+      } catch {
+        throw new Error('Invalid response from payment gateway')
+      }
+    }
+
+    // Validate we got a real Apple merchant session back
+    if (!data.merchantSessionIdentifier) {
+      console.error('[Apple Pay Validation] No merchantSessionIdentifier in response', {
+        responseCode: data.responseCode,
+        responseMessage: data.responseMessage,
+        keys: Object.keys(data),
+      })
+      throw new Error(data.responseMessage || 'Merchant validation failed')
+    }
+
+    // Whitelist only the fields Apple Pay expects. G2Pay returns extra fields
+    // (retries, pspId, responseCode, etc.) that make completeMerchantValidation() reject.
+    const appleSessionKeys = [
+      'epochTimestamp',
+      'expiresAt',
+      'merchantSessionIdentifier',
+      'nonce',
+      'merchantIdentifier',
+      'domainName',
+      'displayName',
+      'signature',
+      'operationalAnalyticsIdentifier',
+    ]
+    const merchantSession: Record<string, string> = {}
+    for (const key of appleSessionKeys) {
+      if (data[key] !== undefined) merchantSession[key] = data[key]
+    }
 
     console.log('[Apple Pay Validation] Merchant validation successful')
 

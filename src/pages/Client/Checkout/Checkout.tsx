@@ -517,8 +517,7 @@ function Checkout() {
       try {
         const { merchantSession } = await validateAppleMerchant(
           event.validationURL,
-          'BabyBets',
-          window.location.hostname
+          'BabyBets'
         )
         session.completeMerchantValidation(merchantSession)
       } catch (err: any) {
