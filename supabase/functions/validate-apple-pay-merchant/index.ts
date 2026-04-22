@@ -144,12 +144,25 @@ serve(async (req) => {
     })
 
     if (!g2payResponse.ok) {
-      console.error('[Apple Pay Validation] G2Pay request failed:', g2payResponse.status)
+      const errText = await g2payResponse.text()
+      console.error('[Apple Pay Validation] G2Pay request failed:', {
+        status: g2payResponse.status,
+        contentType: g2payResponse.headers.get('content-type'),
+        bodyPreview: errText.slice(0, 500),
+      })
       throw new Error(`G2Pay request failed: ${g2payResponse.status}`)
     }
 
-    // G2Pay returns form-encoded data (not JSON). Parse accordingly.
+    // G2Pay usually returns form-encoded data. Log raw body for diagnosis.
     const responseText = await g2payResponse.text()
+
+    console.log('[Apple Pay Validation] Raw G2Pay response:', {
+      status: g2payResponse.status,
+      contentType: g2payResponse.headers.get('content-type'),
+      bodyLength: responseText.length,
+      bodyPreview: responseText.slice(0, 500),
+    })
+
     const data: Record<string, string> = {}
     if (responseText.includes('=') && !responseText.trim().startsWith('{')) {
       new URLSearchParams(responseText).forEach((value, key) => {
