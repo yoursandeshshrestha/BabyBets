@@ -192,7 +192,9 @@ serve(async (req) => {
       orderRef: orderId,
       transactionUnique,
 
-      // Apple Pay payment token (base64 encoded payment data)
+      // Apple Pay specific fields (required by Cardstream Direct API — without
+      // paymentMethod=applepay, gateway returns responseCode 66479 "Invalid paymentToken")
+      paymentMethod: 'applepay',
       paymentToken: JSON.stringify(paymentToken),
 
       // Webhook callback URL

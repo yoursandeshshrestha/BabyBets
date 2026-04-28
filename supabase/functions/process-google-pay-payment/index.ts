@@ -132,6 +132,8 @@ serve(async (req) => {
       amount: order.total_pence,
       orderRef: orderId,
       transactionUnique,
+      // Google Pay specific fields (required by Cardstream Direct API)
+      paymentMethod: 'googlepay',
       paymentToken: typeof paymentToken === 'string' ? paymentToken : JSON.stringify(paymentToken),
       callbackURL: `${SUPABASE_URL}/functions/v1/g2pay-webhook`,
       ...(customerEmail && { customerEmail }),
