@@ -418,7 +418,7 @@ function Checkout() {
 
         setPurchaseCompleted(true)
         clearCart()
-        navigate('/account?tab=tickets&purchase=success')
+        navigate(`/payment/success?orderId=${order.id}`)
         return
       }
 
@@ -474,7 +474,7 @@ function Checkout() {
 
       setPurchaseCompleted(true)
       clearCart()
-      navigate('/account?tab=tickets&purchase=success')
+      navigate(`/payment/success?orderId=${order.id}`)
     } catch (err) {
       console.error('Error processing payment:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to process payment'
@@ -567,7 +567,7 @@ function Checkout() {
 
         setPurchaseCompleted(true)
         clearCart()
-        navigate('/account?tab=tickets&purchase=success')
+        navigate(`/payment/success?orderId=${order.id}`)
       } catch (err: any) {
         console.error('[ApplePay] Payment failed:', err)
         session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
@@ -664,7 +664,7 @@ function Checkout() {
 
       setPurchaseCompleted(true)
       clearCart()
-      navigate('/account?tab=tickets&purchase=success')
+      navigate(`/payment/success?orderId=${order.id}`)
     } catch (err: any) {
       if (err.statusCode === 'CANCELED') {
         setLoading(false)

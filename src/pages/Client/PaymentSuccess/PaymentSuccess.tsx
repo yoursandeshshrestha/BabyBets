@@ -23,42 +23,60 @@ function PaymentSuccess() {
   const orderId = searchParams.get('orderId')
   const [order, setOrder] = useState<OrderDetails | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (orderId) {
-      loadOrderDetails()
-    }
-  }, [orderId])
+    const loadOrderDetails = async () => {
+      if (!orderId) {
+        console.error('[PaymentSuccess] No orderId in URL')
+        setError('No order ID provided')
+        setLoading(false)
+        return
+      }
 
-  const loadOrderDetails = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(
+      console.log('[PaymentSuccess] Loading order:', orderId)
+
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('orders')
+          .select(
+            `
+            id,
+            total_pence,
+            created_at,
+            items:order_items(
+              competition_id,
+              ticket_count,
+              competition:competitions(title, slug)
+            )
           `
-          id,
-          total_pence,
-          created_at,
-          items:order_items(
-            competition_id,
-            ticket_count,
-            competition:competitions(title, slug)
           )
-        `
-        )
-        .eq('id', orderId!)
-        .single()
+          .eq('id', orderId)
+          .maybeSingle()
 
-      if (error) throw error
-      setOrder(data as any)
+        if (fetchError) {
+          console.error('[PaymentSuccess] Fetch error:', fetchError)
+          throw fetchError
+        }
+        if (!data) {
+          console.error('[PaymentSuccess] No order data returned - order may not exist or belong to a different user')
+          throw new Error('Order not found or you do not have permission to view this order')
+        }
 
-      // Email is sent automatically by the backend Edge Function (complete-g2pay-order or g2pay-webhook)
-    } catch (error) {
-      console.error('Error loading order:', error)
-    } finally {
-      setLoading(false)
+        console.log('[PaymentSuccess] Order loaded successfully:', data)
+        setOrder(data as any)
+
+        // Email is sent automatically by the backend Edge Function (complete-g2pay-order or g2pay-webhook)
+      } catch (err) {
+        console.error('Error loading order:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load order details')
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+
+    loadOrderDetails()
+  }, [orderId])
 
   if (loading) {
     return (
@@ -68,6 +86,34 @@ function PaymentSuccess() {
           <div className="text-center">
             <div className="inline-block size-10 sm:size-12 border-4 border-gray-200 border-t-orange-500 rounded-full animate-spin"></div>
             <p className="mt-3 sm:mt-4 text-sm sm:text-base text-gray-600">Loading order details...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !order) {
+    return (
+      <div className="min-h-screen" style={{ backgroundColor: '#FFFCF9', color: '#2D251E' }}>
+        <Header />
+        <div className="pt-24 sm:pt-28 md:pt-32 pb-12 sm:pb-14 md:pb-16 px-4 sm:px-6">
+          <div className="max-w-2xl mx-auto text-center">
+            <div className="inline-flex items-center justify-center size-16 sm:size-18 md:size-20 bg-red-100 rounded-full mb-4 sm:mb-5 md:mb-6">
+              <CheckCircle className="size-10 sm:size-11 md:size-12 text-red-600" />
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-bold mb-3 sm:mb-4">Unable to Load Order</h1>
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-7 md:mb-8">
+              {error || 'Order details could not be found.'}
+            </p>
+            <div className="flex justify-center">
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-linear-to-r from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Browse Competitions
+                <ArrowRight className="size-3.5 sm:size-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -149,19 +195,13 @@ function PaymentSuccess() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
+          <div className="flex justify-center">
             <Link
               to="/"
               className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-linear-to-r from-orange-500 to-orange-600 text-white font-bold rounded-lg hover:opacity-90 transition-opacity cursor-pointer"
             >
               Browse More Competitions
               <ArrowRight className="size-3.5 sm:size-4" />
-            </Link>
-            <Link
-              to="/account/orders"
-              className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base border-2 border-gray-200 font-bold rounded-lg hover:border-gray-300 transition-colors cursor-pointer"
-            >
-              View My Orders
             </Link>
           </div>
         </div>

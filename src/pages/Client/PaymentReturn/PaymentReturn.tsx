@@ -72,7 +72,7 @@ const PaymentReturn = () => {
           setStatus('success')
           setMessage('Payment successful! Redirecting...')
           clearCart()
-          setTimeout(() => navigate('/account?tab=tickets&purchase=success'), 2000)
+          setTimeout(() => navigate(`/payment/success?orderId=${orderRef}`), 2000)
         } else if (order.status === 'failed' || order.status === 'cancelled') {
           // Payment failed or cancelled
           setStatus('failed')
