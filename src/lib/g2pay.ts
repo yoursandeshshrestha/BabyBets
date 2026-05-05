@@ -428,9 +428,13 @@ export function handle3DSChallenge(
           resolved = true
           window.removeEventListener('message', messageHandler)
           autoContinueTimer = null
-          console.log('[G2Pay 3DS] Method URL auto-continue (10s)')
+          console.log('[G2Pay 3DS] Method URL auto-continue (10s) — sending threeDSCompInd=U')
           try {
-            const result = await continue3DS(threeDSRef, {}, orderRef)
+            // BabyBets is a Vite SPA so the threeDSMethodNotificationURL POST
+            // body is dropped at the browser. Tell Cardstream the method URL
+            // result is unavailable; gateway falls back to challenge URL or
+            // frictionless authentication.
+            const result = await continue3DS(threeDSRef, { threeDSCompInd: 'U' }, orderRef)
             if (result.status === 'threeDSRequired' && result.threeDSURL && result.threeDSRef) {
               const recursiveResult = await handle3DSChallenge(
                 result.threeDSURL,

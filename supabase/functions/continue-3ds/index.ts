@@ -110,7 +110,12 @@ serve(async (req) => {
       threeDSRef,
     }
 
-    const validThreeDSFields = ['threeDSMethodData', 'cres', 'MD']
+    // threeDSCompInd is the 3DS Method Completion Indicator (Y/N/U). We pass
+    // it from the auto-continue path because our SPA can't capture the POST
+    // body Revolut/Cardstream sends to /payment-3ds, so we report the method
+    // URL as 'U' (unavailable) — the gateway falls back to a challenge or
+    // frictionless flow which the SPA can handle via GET query params.
+    const validThreeDSFields = ['threeDSMethodData', 'cres', 'MD', 'threeDSCompInd']
     if (threeDSResponse && typeof threeDSResponse === 'object') {
       for (const key of validThreeDSFields) {
         if (threeDSResponse[key] !== undefined && threeDSResponse[key] !== null && threeDSResponse[key] !== '') {
