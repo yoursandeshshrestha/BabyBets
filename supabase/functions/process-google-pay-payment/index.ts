@@ -123,6 +123,15 @@ serve(async (req) => {
       .select('id')
       .single()
 
+    // Client IP + User-Agent for 3DS device data
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('cf-connecting-ip')
+      || req.headers.get('x-real-ip')
+      || '0.0.0.0'
+    const userAgent = req.headers.get('user-agent') || 'Mozilla/5.0'
+    const PUBLIC_SITE_URL = Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
+    const threeDSRedirectURL = `${PUBLIC_SITE_URL}/payment-3ds?orderRef=${orderId}`
+
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
       action: 'SALE',
@@ -136,6 +145,19 @@ serve(async (req) => {
       paymentMethod: 'googlepay',
       paymentToken: typeof paymentToken === 'string' ? paymentToken : JSON.stringify(paymentToken),
       callbackURL: `${SUPABASE_URL}/functions/v1/g2pay-webhook`,
+
+      // 3DS fields — required when Cardstream needs to challenge a PAN_ONLY token
+      threeDSRedirectURL,
+      remoteAddress: clientIp,
+      deviceChannel: 'browser',
+      deviceIdentity: userAgent,
+      deviceTimeZone: '0',
+      deviceCapabilities: 'javascript',
+      deviceScreenResolution: '1920x1080x24',
+      deviceAcceptContent: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      deviceAcceptEncoding: 'gzip, deflate, br',
+      deviceAcceptLanguage: 'en-GB',
+
       ...(customerEmail && { customerEmail }),
       ...(customerPhone && { customerPhone }),
     }
@@ -182,6 +204,34 @@ serve(async (req) => {
         transactionID: responseData.transactionID,
         transactionUnique: responseData.transactionUnique || transactionUnique,
         orderRef: responseData.orderRef || orderId,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    // 3DS challenge required (responseCode 65802)
+    if (responseData.responseCode === '65802') {
+      console.log('[Google Pay] 3DS challenge required')
+
+      if (transactionLog?.id) {
+        await supabaseAdmin
+          .from('payment_transactions')
+          .update({
+            response_code: responseData.responseCode,
+            response_message: responseData.responseMessage,
+            status: 'threeds_required',
+            response_data: responseData,
+          })
+          .eq('id', transactionLog.id)
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        status: 'threeDSRequired',
+        threeDSRef: responseData.threeDSRef,
+        threeDSURL: responseData.threeDSURL,
+        threeDSRequest: responseData.threeDSRequest,
+        xref: responseData.xref,
+        orderRef: orderId,
+        transactionUnique,
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 

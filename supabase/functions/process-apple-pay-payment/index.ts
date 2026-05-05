@@ -181,6 +181,15 @@ serve(async (req) => {
       transactionUnique,
     })
 
+    // Client IP + User-Agent for 3DS device data
+    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || req.headers.get('cf-connecting-ip')
+      || req.headers.get('x-real-ip')
+      || '0.0.0.0'
+    const userAgent = req.headers.get('user-agent') || 'Mozilla/5.0'
+    const PUBLIC_SITE_URL = Deno.env.get('PUBLIC_SITE_URL') || 'https://www.babybets.co.uk'
+    const threeDSRedirectURL = `${PUBLIC_SITE_URL}/payment-3ds?orderRef=${orderId}`
+
     // Prepare request data for G2Pay Direct API
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
@@ -199,6 +208,19 @@ serve(async (req) => {
 
       // Webhook callback URL
       callbackURL: `${SUPABASE_URL}/functions/v1/g2pay-webhook`,
+
+      // 3DS fields — Apple Pay tokens usually skip 3DS via the on-device cryptogram,
+      // but Cardstream still requires these to be present for risk assessment.
+      threeDSRedirectURL,
+      remoteAddress: clientIp,
+      deviceChannel: 'browser',
+      deviceIdentity: userAgent,
+      deviceTimeZone: '0',
+      deviceCapabilities: 'javascript',
+      deviceScreenResolution: '1920x1080x24',
+      deviceAcceptContent: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      deviceAcceptEncoding: 'gzip, deflate, br',
+      deviceAcceptLanguage: 'en-GB',
 
       // Optional customer details
       ...(customerEmail && { customerEmail }),
@@ -273,6 +295,37 @@ serve(async (req) => {
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
+      )
+    }
+
+    // 3DS challenge required (responseCode 65802)
+    if (responseData.responseCode === '65802') {
+      console.log('[Apple Pay Payment] 3DS challenge required')
+
+      if (transactionLog?.id) {
+        await supabaseAdmin
+          .from('payment_transactions')
+          .update({
+            response_code: responseData.responseCode,
+            response_message: responseData.responseMessage,
+            status: 'threeds_required',
+            response_data: responseData,
+          })
+          .eq('id', transactionLog.id)
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: 'threeDSRequired',
+          threeDSRef: responseData.threeDSRef,
+          threeDSURL: responseData.threeDSURL,
+          threeDSRequest: responseData.threeDSRequest,
+          xref: responseData.xref,
+          orderRef: orderId,
+          transactionUnique,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 

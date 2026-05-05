@@ -244,7 +244,7 @@ export const processApplePayPayment = async (
   paymentToken: object,
   customerEmail?: string,
   customerPhone?: string
-): Promise<{ success: boolean; transactionID?: string; error?: string }> => {
+): Promise<PaymentResponse> => {
   const supabaseWithAuth = await getAuthenticatedClient()
 
   const { data, error } = await supabaseWithAuth.functions.invoke('process-apple-pay-payment', {
@@ -267,7 +267,7 @@ export const processGooglePayPayment = async (
   paymentToken: string,
   customerEmail?: string,
   customerPhone?: string
-): Promise<{ success: boolean; transactionID?: string; error?: string }> => {
+): Promise<PaymentResponse> => {
   const supabaseWithAuth = await getAuthenticatedClient()
 
   const { data, error } = await supabaseWithAuth.functions.invoke('process-google-pay-payment', {

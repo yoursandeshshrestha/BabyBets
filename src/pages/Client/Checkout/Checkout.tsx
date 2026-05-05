@@ -197,7 +197,7 @@ function Checkout() {
           allowedPaymentMethods: [{
             type: 'CARD',
             parameters: {
-              allowedAuthMethods: ['CRYPTOGRAM_3DS'],
+              allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
               allowedCardNetworks: ['MASTERCARD', 'VISA'],
             },
             tokenizationSpecification: {
@@ -528,6 +528,15 @@ function Checkout() {
     }
 
     session.onpaymentauthorized = async (event: any) => {
+      // Track whether session.completePayment has already been called so the
+      // catch block doesn't double-fire it and confuse Safari.
+      let sessionCompleted = false
+      const completeAppleSession = (status: number) => {
+        if (sessionCompleted) return
+        sessionCompleted = true
+        session.completePayment({ status })
+      }
+
       try {
         setLoading(true)
 
@@ -538,7 +547,7 @@ function Checkout() {
         const expectedAmount = (validatedOrder.total_pence / 100).toFixed(2)
         if (finalPrice.toFixed(2) !== expectedAmount) {
           console.error('[ApplePay] Price mismatch - frontend:', finalPrice.toFixed(2), 'backend:', expectedAmount)
-          session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
+          completeAppleSession(ApplePaySessionClass.STATUS_FAILURE)
           throw new Error('Price validation failed. Please refresh and try again.')
         }
 
@@ -552,25 +561,55 @@ function Checkout() {
         )
 
         if (!paymentResult.success) {
-          session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
+          completeAppleSession(ApplePaySessionClass.STATUS_FAILURE)
           throw new Error(paymentResult.error || 'Apple Pay payment failed')
+        }
+
+        // 3DS challenge — close the Apple Pay sheet first so it doesn't time out
+        // during the bank's challenge, then run 3DS in our own iframe.
+        if (
+          paymentResult.status === 'threeDSRequired'
+          && paymentResult.threeDSURL
+          && paymentResult.threeDSRequest
+          && paymentResult.threeDSRef
+        ) {
+          completeAppleSession(ApplePaySessionClass.STATUS_SUCCESS)
+          console.log('[ApplePay] 3DS challenge required, showing iframe')
+          setShow3DSModal(true)
+
+          let finalResult
+          try {
+            finalResult = await handle3DSChallenge(
+              paymentResult.threeDSURL,
+              paymentResult.threeDSRequest,
+              paymentResult.threeDSRef,
+              order.id,
+              'threeds-iframe'
+            )
+          } finally {
+            setShow3DSModal(false)
+          }
+
+          if (!finalResult.success) {
+            throw new Error(finalResult.error || '3DS authentication failed')
+          }
         }
 
         // Complete order — marks as paid + claims tickets
         const completeResult = await completeOrder(order.id)
         if (!completeResult.success) {
-          session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
+          completeAppleSession(ApplePaySessionClass.STATUS_FAILURE)
           throw new Error(completeResult.error || 'Failed to complete order')
         }
 
-        session.completePayment({ status: ApplePaySessionClass.STATUS_SUCCESS })
+        completeAppleSession(ApplePaySessionClass.STATUS_SUCCESS)
 
         setPurchaseCompleted(true)
         clearCart()
         navigate(`/payment/success?orderId=${order.id}`)
       } catch (err: any) {
         console.error('[ApplePay] Payment failed:', err)
-        session.completePayment({ status: ApplePaySessionClass.STATUS_FAILURE })
+        completeAppleSession(ApplePaySessionClass.STATUS_FAILURE)
         setPaymentError(err.message || 'Apple Pay payment failed')
         showErrorToast(err.message || 'Apple Pay payment failed')
       } finally {
@@ -607,7 +646,7 @@ function Checkout() {
         allowedPaymentMethods: [{
           type: 'CARD',
           parameters: {
-            allowedAuthMethods: ['CRYPTOGRAM_3DS'],
+            allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
             allowedCardNetworks: ['MASTERCARD', 'VISA'],
           },
           tokenizationSpecification: {
@@ -654,6 +693,34 @@ function Checkout() {
 
       if (!paymentResult.success) {
         throw new Error(paymentResult.error || 'Google Pay payment failed')
+      }
+
+      // 3DS challenge for PAN_ONLY tokens
+      if (
+        paymentResult.status === 'threeDSRequired'
+        && paymentResult.threeDSURL
+        && paymentResult.threeDSRequest
+        && paymentResult.threeDSRef
+      ) {
+        console.log('[GooglePay] 3DS challenge required, showing iframe')
+        setShow3DSModal(true)
+
+        let finalResult
+        try {
+          finalResult = await handle3DSChallenge(
+            paymentResult.threeDSURL,
+            paymentResult.threeDSRequest,
+            paymentResult.threeDSRef,
+            order.id,
+            'threeds-iframe'
+          )
+        } finally {
+          setShow3DSModal(false)
+        }
+
+        if (!finalResult.success) {
+          throw new Error(finalResult.error || '3DS authentication failed')
+        }
       }
 
       // Complete order — marks as paid + claims tickets
