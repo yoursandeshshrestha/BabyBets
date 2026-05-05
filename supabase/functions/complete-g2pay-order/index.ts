@@ -120,6 +120,43 @@ serve(async (req) => {
       throw new Error(`Cannot complete order with status: ${order.status}`)
     }
 
+    // Verify Cardstream actually captured the payment before marking the order
+    // as paid. Without this, a buggy client (or a malicious caller) could flip
+    // 'pending' → 'paid' while the gateway is still mid-3DS, which leaves the
+    // bank's authorisation hold to expire and reverse — funds taken then
+    // refunded a few hours later.
+    const { data: successfulTransaction, error: txError } = await supabaseAdmin
+      .from('payment_transactions')
+      .select('id, status, transaction_id')
+      .eq('order_id', orderId)
+      .eq('status', 'success')
+      .limit(1)
+      .maybeSingle()
+
+    if (txError) {
+      console.error('[Complete Order] Failed to look up payment_transactions:', txError)
+      throw new Error('Failed to verify payment status')
+    }
+
+    if (!successfulTransaction) {
+      console.error('[Complete Order] Refusing to complete order — no successful payment_transactions row', { orderId })
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Payment has not been confirmed by the gateway yet',
+        }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    console.log('[Complete Order] Verified successful payment', {
+      orderId,
+      transactionId: successfulTransaction.transaction_id,
+    })
+
     // Update order to paid
     const { error: updateError } = await supabaseAdmin
       .from('orders')
