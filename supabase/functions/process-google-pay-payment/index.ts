@@ -192,6 +192,10 @@ serve(async (req) => {
     console.log('[Google Pay] G2Pay response:', {
       responseCode: responseData.responseCode,
       responseMessage: responseData.responseMessage,
+      threeDSRef: responseData.threeDSRef,
+      threeDSURL: responseData.threeDSURL,
+      threeDSRequest_length: responseData.threeDSRequest?.length ?? 0,
+      allKeys: Object.keys(responseData).join(', '),
     })
 
     if (responseData.responseCode === '0') {
