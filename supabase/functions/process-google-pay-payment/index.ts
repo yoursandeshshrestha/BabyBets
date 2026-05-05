@@ -2,23 +2,32 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
 
-async function createSignature(data: Record<string, string | number>, signatureKey: string): Promise<string> {
-  const processedData: Record<string, string> = {}
-  const keys = Object.keys(data).sort()
-  keys.forEach(key => { processedData[key] = String(data[key]) })
+// PHP-compatible URL encoding to match http_build_query() — see Apple Pay
+// edge function for full rationale.
+function phpRawUrlEncode(str: string): string {
+  return encodeURIComponent(str)
+    .replace(/!/g, '%21')
+    .replace(/'/g, '%27')
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29')
+    .replace(/\*/g, '%2A')
+    .replace(/%20/g, '+')
+}
 
-  const params = new URLSearchParams()
-  for (const key in processedData) {
-    params.append(key, processedData[key])
-  }
-  let signatureString = params.toString()
+async function createSignature(data: Record<string, string | number>, signatureKey: string): Promise<string> {
+  const keys = Object.keys(data).sort()
+  const pairs: string[] = []
+  keys.forEach(key => {
+    pairs.push(`${phpRawUrlEncode(key)}=${phpRawUrlEncode(String(data[key]))}`)
+  })
+
+  let signatureString = pairs.join('&')
   signatureString = signatureString
     .replace(/%0D%0A/g, '%0A')
     .replace(/%0A%0D/g, '%0A')
     .replace(/%0D/g, '%0A')
 
-  const messageToHash = signatureString + signatureKey
-  const msgBuffer = new TextEncoder().encode(messageToHash)
+  const msgBuffer = new TextEncoder().encode(signatureString + signatureKey)
   const hashBuffer = await crypto.subtle.digest('SHA-512', msgBuffer)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
