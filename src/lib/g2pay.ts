@@ -345,17 +345,14 @@ export function handle3DSChallenge(
 
     window.addEventListener('message', messageHandler)
 
-    // Submit 3DS form to iframe
-    setTimeout(() => {
-      const iframe = document.getElementById(iframeId) as HTMLIFrameElement
-      if (!iframe) {
-        resolved = true
-        window.removeEventListener('message', messageHandler)
-        resolve({ success: false, error: '3DS iframe not found' })
-        return
-      }
+    // Build the form once; only the iframe target may not exist immediately
+    // because React's render cycle hasn't committed show3DSModal yet. Retry
+    // up to 5 times with exponential backoff to match VincentVanGogh's
+    // submitWithRetry pattern in useGooglePay.
+    const submitForm = (): boolean => {
+      const iframe = document.getElementById(iframeId) as HTMLIFrameElement | null
+      if (!iframe) return false
 
-      // Create hidden form and submit to iframe
       const form = document.createElement('form')
       form.method = 'POST'
       form.action = threeDSURL
@@ -395,6 +392,29 @@ export function handle3DSChallenge(
         isMethodUrl,
         params: Object.keys(params),
       })
+      return true
+    }
+
+    const submitWithRetry = (attempts: number) => {
+      if (resolved) return
+      const ok = submitForm()
+      if (!ok && attempts < 5) {
+        setTimeout(() => submitWithRetry(attempts + 1), 100 * attempts)
+      } else if (!ok) {
+        resolved = true
+        window.removeEventListener('message', messageHandler)
+        if (autoContinueTimer) {
+          clearTimeout(autoContinueTimer)
+          autoContinueTimer = null
+        }
+        console.error('[G2Pay 3DS] Failed to submit form to iframe after retries')
+        resolve({ success: false, error: '3DS iframe not found' })
+      }
+    }
+
+    // Wait for React to commit the iframe before first submit attempt.
+    setTimeout(() => {
+      submitWithRetry(1)
 
       // Method URL: auto-continue after 10s if the iframe never posts back.
       // Mirrors the pattern in VincentVanGogh's useGooglePay composable —

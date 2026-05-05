@@ -99,13 +99,24 @@ serve(async (req) => {
       threeDSResponse: threeDSResponse ? Object.keys(threeDSResponse) : 'empty',
     })
 
-    // Build the continuation request
+    // Build the continuation request — Cardstream expects 3DS response fields
+    // wrapped in PHP-style bracket notation (`threeDSResponse[threeDSMethodData]`,
+    // `threeDSResponse[cres]`, `threeDSResponse[MD]`), NOT flat. Sending them
+    // flat causes "Missing threeDSResponse" even when the underlying value is
+    // present. Mirrors VincentVanGogh's CardstreamHostedFieldsService::continue3DS.
     const requestData: Record<string, string | number> = {
       merchantID: G2PAY_MERCHANT_ID,
       action: 'SALE',
       threeDSRef,
-      // Include any 3DS response data (cres, threeDSMethodData, etc.)
-      ...(threeDSResponse || {}),
+    }
+
+    const validThreeDSFields = ['threeDSMethodData', 'cres', 'MD']
+    if (threeDSResponse && typeof threeDSResponse === 'object') {
+      for (const key of validThreeDSFields) {
+        if (threeDSResponse[key] !== undefined && threeDSResponse[key] !== null && threeDSResponse[key] !== '') {
+          requestData[`threeDSResponse[${key}]`] = String(threeDSResponse[key])
+        }
+      }
     }
 
     const signature = await createSignature(requestData, G2PAY_SIGNATURE_KEY)
