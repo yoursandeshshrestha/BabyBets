@@ -197,7 +197,7 @@ function Checkout() {
           allowedPaymentMethods: [{
             type: 'CARD',
             parameters: {
-              allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
+              allowedAuthMethods: ['CRYPTOGRAM_3DS'],
               allowedCardNetworks: ['MASTERCARD', 'VISA'],
             },
             tokenizationSpecification: {
@@ -607,7 +607,7 @@ function Checkout() {
         allowedPaymentMethods: [{
           type: 'CARD',
           parameters: {
-            allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
+            allowedAuthMethods: ['CRYPTOGRAM_3DS'],
             allowedCardNetworks: ['MASTERCARD', 'VISA'],
           },
           tokenizationSpecification: {
