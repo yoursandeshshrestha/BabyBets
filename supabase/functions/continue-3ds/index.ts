@@ -130,6 +130,20 @@ serve(async (req) => {
     const responseData: Record<string, string> = {}
     responseParams.forEach((value, key) => { responseData[key] = value })
 
+    // Recursive 3DS challenges (method URL → challenge URL) come back with
+    // the next-step body in PHP-style bracket keys. Reconstruct so the
+    // client's iframe can submit the form.
+    const threeDSRequestPairs: string[] = []
+    Object.entries(responseData).forEach(([key, value]) => {
+      const match = key.match(/^threeDSRequest\[(.+)\]$/)
+      if (match) {
+        threeDSRequestPairs.push(`${encodeURIComponent(match[1])}=${encodeURIComponent(value)}`)
+      }
+    })
+    if (!responseData.threeDSRequest && threeDSRequestPairs.length > 0) {
+      responseData.threeDSRequest = threeDSRequestPairs.join('&')
+    }
+
     console.log('[continue-3ds] Parsed response:', {
       responseCode: responseData.responseCode,
       responseMessage: responseData.responseMessage,

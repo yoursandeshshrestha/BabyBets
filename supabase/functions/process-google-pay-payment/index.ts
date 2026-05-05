@@ -189,12 +189,28 @@ serve(async (req) => {
     const responseData: Record<string, string> = {}
     responseParams.forEach((value, key) => { responseData[key] = value })
 
+    // Cardstream returns nested 3DS payloads as PHP-style bracket keys, e.g.
+    // threeDSRequest[threeDSMethodData]=...&threeDSRequest[anotherField]=...
+    // URLSearchParams keeps the brackets literal, so `responseData.threeDSRequest`
+    // is undefined. Reconstruct it as a URL-encoded form body the iframe can POST.
+    const threeDSRequestPairs: string[] = []
+    Object.entries(responseData).forEach(([key, value]) => {
+      const match = key.match(/^threeDSRequest\[(.+)\]$/)
+      if (match) {
+        threeDSRequestPairs.push(`${encodeURIComponent(match[1])}=${encodeURIComponent(value)}`)
+      }
+    })
+    if (!responseData.threeDSRequest && threeDSRequestPairs.length > 0) {
+      responseData.threeDSRequest = threeDSRequestPairs.join('&')
+    }
+
     console.log('[Google Pay] G2Pay response:', {
       responseCode: responseData.responseCode,
       responseMessage: responseData.responseMessage,
       threeDSRef: responseData.threeDSRef,
       threeDSURL: responseData.threeDSURL,
       threeDSRequest_length: responseData.threeDSRequest?.length ?? 0,
+      threeDSRequest_reconstructed: threeDSRequestPairs.length > 0,
       allKeys: Object.keys(responseData).join(', '),
     })
 

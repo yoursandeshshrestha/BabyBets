@@ -296,11 +296,24 @@ export function handle3DSChallenge(
 ): Promise<PaymentResponse> {
   return new Promise((resolve) => {
     let resolved = false
+    let autoContinueTimer: ReturnType<typeof setTimeout> | null = null
+
+    // 3DS method URLs (e.g. /3dsMethod) do silent device fingerprinting and
+    // typically don't postMessage back. We have to auto-continue after a
+    // short window. Challenge URLs do require user interaction and a real
+    // postMessage from the ACS callback page.
+    const urlLower = (threeDSURL || '').toLowerCase()
+    const isMethodUrl = urlLower.includes('method') && !urlLower.includes('challenge')
 
     // Listen for postMessage from 3DS callback page
     const messageHandler = async (event: MessageEvent) => {
       if (event.data?.type !== 'threeDSResponse' || resolved) return
       resolved = true
+
+      if (autoContinueTimer) {
+        clearTimeout(autoContinueTimer)
+        autoContinueTimer = null
+      }
 
       window.removeEventListener('message', messageHandler)
 
@@ -310,12 +323,13 @@ export function handle3DSChallenge(
         // Send ACS response back to G2Pay via edge function
         const result = await continue3DS(threeDSRef, event.data.response || {}, orderRef)
 
-        if (result.status === 'threeDSRequired' && result.threeDSURL && result.threeDSRequest && result.threeDSRef) {
-          // Recursive challenge — another 3DS step required
+        if (result.status === 'threeDSRequired' && result.threeDSURL && result.threeDSRef) {
+          // Recursive challenge — another 3DS step required (threeDSRequest
+          // can be empty for a follow-up method URL)
           console.log('[G2Pay 3DS] Additional challenge required')
           const recursiveResult = await handle3DSChallenge(
             result.threeDSURL,
-            result.threeDSRequest,
+            result.threeDSRequest || '',
             result.threeDSRef,
             orderRef,
             iframeId
@@ -348,7 +362,8 @@ export function handle3DSChallenge(
       form.target = iframeId
       form.style.display = 'none'
 
-      // Parse threeDSRequest (URL-encoded or JSON)
+      // Parse threeDSRequest (URL-encoded or JSON). For method URLs this is
+      // often empty — that's fine, we just submit the form with no body.
       let params: Record<string, string> = {}
       if (typeof threeDSRequest === 'string' && threeDSRequest) {
         try {
@@ -375,7 +390,44 @@ export function handle3DSChallenge(
       form.submit()
       document.body.removeChild(form)
 
-      console.log('[G2Pay 3DS] Form submitted to iframe', { threeDSURL, params: Object.keys(params) })
+      console.log('[G2Pay 3DS] Form submitted to iframe', {
+        threeDSURL,
+        isMethodUrl,
+        params: Object.keys(params),
+      })
+
+      // Method URL: auto-continue after 10s if the iframe never posts back.
+      // Mirrors the pattern in VincentVanGogh's useGooglePay composable —
+      // method URL does silent device fingerprinting then either redirects
+      // (which postMessages via /payment-3ds) or finishes silently. Either
+      // way, calling continue-3ds with an empty response lets G2Pay decide
+      // whether the fingerprint succeeded.
+      if (isMethodUrl) {
+        autoContinueTimer = setTimeout(async () => {
+          if (resolved) return
+          resolved = true
+          window.removeEventListener('message', messageHandler)
+          autoContinueTimer = null
+          console.log('[G2Pay 3DS] Method URL auto-continue (10s)')
+          try {
+            const result = await continue3DS(threeDSRef, {}, orderRef)
+            if (result.status === 'threeDSRequired' && result.threeDSURL && result.threeDSRef) {
+              const recursiveResult = await handle3DSChallenge(
+                result.threeDSURL,
+                result.threeDSRequest || '',
+                result.threeDSRef,
+                orderRef,
+                iframeId
+              )
+              resolve(recursiveResult)
+            } else {
+              resolve(result)
+            }
+          } catch (err: any) {
+            resolve({ success: false, error: err.message })
+          }
+        }, 10000)
+      }
     }, 100)
   })
 }

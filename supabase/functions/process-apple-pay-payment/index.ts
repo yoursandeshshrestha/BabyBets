@@ -267,10 +267,26 @@ serve(async (req) => {
       responseData[key] = value
     })
 
+    // Reconstruct threeDSRequest from PHP-style bracket keys (Cardstream
+    // serialises nested arrays as `threeDSRequest[fieldName]=value` which
+    // URLSearchParams keeps as literal-bracket keys).
+    const threeDSRequestPairs: string[] = []
+    Object.entries(responseData).forEach(([key, value]) => {
+      const match = key.match(/^threeDSRequest\[(.+)\]$/)
+      if (match) {
+        threeDSRequestPairs.push(`${encodeURIComponent(match[1])}=${encodeURIComponent(value)}`)
+      }
+    })
+    if (!responseData.threeDSRequest && threeDSRequestPairs.length > 0) {
+      responseData.threeDSRequest = threeDSRequestPairs.join('&')
+    }
+
     console.log('[Apple Pay Payment] Parsed response:', {
       responseCode: responseData.responseCode,
       responseMessage: responseData.responseMessage,
       transactionID: responseData.transactionID,
+      threeDSRequest_length: responseData.threeDSRequest?.length ?? 0,
+      threeDSRequest_reconstructed: threeDSRequestPairs.length > 0,
     })
 
     // Check payment status (responseCode '0' = success)
